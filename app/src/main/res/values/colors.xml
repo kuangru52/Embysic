@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <!-- Warm Color Palette -->
+    <color name="primary_light">#A53B00</color>
+    <color name="on_primary_light">#FFFFFF</color>
+    <color name="primary_container_light">#FFDBCF</color>
+    <color name="on_primary_container_light">#350E00</color>
+
+    <color name="secondary_light">#77574D</color>
+    <color name="on_secondary_light">#FFFFFF</color>
+    <color name="secondary_container_light">#FFDBCF</color>
+    <color name="on_secondary_container_light">#2C160E</color>
+
+    <color name="background_light">#FFF8F6</color>
+    <color name="on_background_light">#231A17</color>
+    <color name="surface_light">#FFF8F6</color>
+    <color name="on_surface_light">#231A17</color>
+
+    <color name="primary_dark">#FFB59A</color>
+    <color name="on_primary_dark">#591D00</color>
+    <color name="primary_container_dark">#7E2C00</color>
+    <color name="on_primary_container_dark">#FFDBCF</color>
+
+    <color name="secondary_dark">#E7BDB1</color>
+    <color name="on_secondary_dark">#442A22</color>
+    <color name="secondary_container_dark">#5D4037</color>
+    <color name="on_secondary_container_dark">#FFDBCF</color>
+
+    <color name="background_dark">#1A110F</color>
+    <color name="on_background_dark">#F1DFDA</color>
+    <color name="surface_dark">#1A110F</color>
+    <color name="on_surface_dark">#F1DFDA</color>
+</resources>

@@ -1,0 +1,42 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 1. 圆角矩形底座 (外层嵌套) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M18,18 h72 a8,8 0 0 1 8,8 v56 a8,8 0 0 1 -8,8 h-72 a8,8 0 0 1 -8,-8 v-56 a8,8 0 0 1 8,-8 z" />
+
+    <!-- 2. 图标主体组合：严格使用 4 个正方形叠加 -->
+    <!-- 整体旋转 45 度并缩放 0.55 倍居中 -->
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:rotation="45"
+        android:scaleX="0.55"
+        android:scaleY="0.55">
+
+        <!-- 四个完全一样的绿色正方形，通过微小偏移叠加出图片中的 8 角形状 -->
+        <path android:fillColor="#5DBB46" android:pathData="M34,20 h40 v40 h-40 z" /> <!-- 上 -->
+        <path android:fillColor="#5DBB46" android:pathData="M34,48 h40 v40 h-40 z" /> <!-- 下 -->
+        <path android:fillColor="#5DBB46" android:pathData="M20,34 h40 v40 h-40 z" /> <!-- 左 -->
+        <path android:fillColor="#5DBB46" android:pathData="M48,34 h40 v40 h-40 z" /> <!-- 右 -->
+
+        <!-- 3. 中心的白色音乐播放符号 (抵消旋转以保持水平) -->
+        <group
+            android:pivotX="54"
+            android:pivotY="54"
+            android:rotation="-45">
+            <!-- 音符主体 -->
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M38,72 a7,6 0 1 1 -2,-10 L36,32 L68,26 V40 L36,48 Z" />
+            <!-- 播放三角 (利用音符杆作为底边) -->
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M42,42 L68,54 L42,66 Z" />
+        </group>
+    </group>
+</vector>

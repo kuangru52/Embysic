@@ -1,0 +1,9 @@
+<resources>
+    <string name="app_name">Embysic</string>
+    <string name="login_title">Emby Login</string>
+    <string name="server_address">Server Address</string>
+    <string name="username">Username</string>
+    <string name="password">Password</string>
+    <string name="login_button">Login</string>
+    <string name="server_address_hint">http://your-emby-server:8096</string>
+</resources>

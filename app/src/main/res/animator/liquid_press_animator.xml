@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 按压状态：液态挤压下沉感 -->
+    <item android:state_pressed="true">
+        <set>
+            <objectAnimator
+                android:propertyName="scaleX"
+                android:duration="100"
+                android:valueTo="0.88"
+                android:valueType="floatType"/>
+            <objectAnimator
+                android:propertyName="scaleY"
+                android:duration="100"
+                android:valueTo="0.88"
+                android:valueType="floatType"/>
+            <objectAnimator
+                android:propertyName="alpha"
+                android:duration="100"
+                android:valueTo="0.6"
+                android:valueType="floatType"/>
+            <objectAnimator
+                android:propertyName="translationZ"
+                android:duration="100"
+                android:valueTo="-15"
+                android:valueType="floatType"/>
+        </set>
+    </item>
+    <!-- 释放/默认状态：灵动回弹 -->
+    <item>
+        <set>
+            <objectAnimator
+                android:interpolator="@android:anim/overshoot_interpolator"
+                android:propertyName="scaleX"
+                android:duration="400"
+                android:valueTo="1.0"
+                android:valueType="floatType" />
+            <objectAnimator
+                android:interpolator="@android:anim/overshoot_interpolator"
+                android:propertyName="scaleY"
+                android:duration="400"
+                android:valueTo="1.0"
+                android:valueType="floatType" />
+            <objectAnimator
+                android:propertyName="alpha"
+                android:duration="400"
+                android:valueTo="1.0"
+                android:valueType="floatType"/>
+            <objectAnimator
+                android:propertyName="translationZ"
+                android:duration="400"
+                android:valueTo="0"
+                android:valueType="floatType"/>
+        </set>
+    </item>
+</selector>

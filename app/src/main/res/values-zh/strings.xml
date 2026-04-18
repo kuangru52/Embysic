@@ -1,0 +1,33 @@
+<resources>
+    <string name="app_name">Embysic</string>
+    <string name="login_title">Emby 登录</string>
+    <string name="server_address">服务器地址</string>
+    <string name="username">用户名</string>
+    <string name="password">密码</string>
+    <string name="login_button">登录</string>
+    <string name="server_address_hint">http://您的服务器地址:8096</string>
+
+    <!-- 导航栏 -->
+    <string name="nav_recent">最近</string>
+    <string name="nav_favorite">收藏</string>
+    <string name="nav_library">曲库</string>
+    <string name="nav_search">搜索</string>
+
+    <!-- 播放器 -->
+    <string name="not_playing">未在播放</string>
+    <string name="song_title">歌曲名</string>
+    <string name="artist_name">歌手名</string>
+    <string name="search_hint">搜索歌曲、艺人...</string>
+
+    <!-- 状态与消息 -->
+    <string name="loading_lyrics">正在加载歌词…</string>
+    <string name="transcoding">正在转码: </string>
+    <string name="no_lyrics">未找到在线歌词</string>
+    <string name="unknown_song">未知曲名</string>
+    <string name="unknown_artist">未知歌手</string>
+    <string name="source_netease">来源: 网易云音乐</string>
+    <string name="added_to_favorites">已添加收藏</string>
+    <string name="removed_from_favorites">已取消收藏</string>
+    <string name="sync_failed">同步失败</string>
+    <string name="press_again_to_exit">再按一次退出</string>
+</resources>

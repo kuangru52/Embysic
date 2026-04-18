@@ -88,7 +88,7 @@ class FavoriteFragment : Fragment() {
         lifecycleScope.launch {
             progressBar.visibility = View.VISIBLE
             try {
-                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.0\", Token=\"$accessToken\""
+                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.5\", Token=\"$accessToken\""
                 // 使用 getItems 并指定 Filters=IsFavorite
                 val response = service.getItems(
                     userId = userId,
@@ -101,7 +101,7 @@ class FavoriteFragment : Fragment() {
                 val favorites = response.Items.filter { it.UserData?.IsFavorite == true }
                 adapter.submitList(favorites)
             } catch (e: Exception) {
-                Toast.makeText(context, "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                // 静默处理加载失败
             } finally {
                 progressBar.visibility = View.GONE
             }

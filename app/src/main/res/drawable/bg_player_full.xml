@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#000000" /> <!-- 颜色不重要，主要用于定义 Outline 裁剪 -->
+    <corners android:radius="36dp" />
+</shape>

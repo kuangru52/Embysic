@@ -6,6 +6,7 @@ import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 
 interface EmbyApiService {
     @GET("emby/Users/{userId}/Views")
@@ -17,11 +18,43 @@ interface EmbyApiService {
     @GET("emby/Items")
     suspend fun getItems(
         @Query("UserId") userId: String,
-        @Query("ParentId") parentId: String? = null,
         @Query("SearchTerm") searchTerm: String? = null,
         @Query("IncludeItemTypes") includeItemTypes: String? = null,
         @Query("Recursive") recursive: Boolean = true,
-        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index",
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName,Filename,SortName",
+        @Header("X-Emby-Authorization") auth: String,
+        @Query("StartIndex") startIndex: Int? = null,
+        @Query("Limit") limit: Int? = null,
+        @Query("SortBy") sortBy: String? = null,
+        @Query("SortOrder") sortOrder: String? = null,
+        @Query("MediaTypes") mediaTypes: String? = null,
+        @Query("ParentId") parentId: String? = null,
+        @Query("Ids") ids: String? = null
+    ): EmbyItemsResponse
+
+    @GET("emby/Search/Hints")
+    suspend fun getSearchHints(
+        @Query("UserId") userId: String,
+        @Query("SearchTerm") searchTerm: String,
+        @Query("IncludeItemTypes") includeItemTypes: String? = null,
+        @Query("Limit") limit: Int? = null,
+        @Header("X-Emby-Authorization") auth: String
+    ): com.google.gson.JsonElement
+
+    @GET("emby/Items")
+    suspend fun getItemsFlexible(
+        @Query("UserId") userId: String,
+        @Query("Ids") ids: String? = null,
+        @Query("SearchTerm") searchTerm: String? = null,
+        @Query("IncludeItemTypes") includeItemTypes: String? = null,
+        @Query("Recursive") recursive: Boolean = true,
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName",
+        @Header("X-Emby-Authorization") auth: String
+    ): com.google.gson.JsonElement
+
+    @GET("emby/Library/Browse")
+    suspend fun browseDirectory(
+        @Query("Id") id: String,
         @Header("X-Emby-Authorization") auth: String
     ): EmbyItemsResponse
 
@@ -30,7 +63,7 @@ interface EmbyApiService {
         @Path("userId") userId: String,
         @Query("IncludeItemTypes") includeItemTypes: String = "Audio",
         @Query("Limit") limit: Int = 20,
-        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index",
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName",
         @Header("X-Emby-Authorization") auth: String
     ): List<EmbyItem>
 
@@ -42,7 +75,7 @@ interface EmbyApiService {
         @Query("IncludeItemTypes") includeItemTypes: String = "Audio",
         @Query("Limit") limit: Int = 20,
         @Query("Recursive") recursive: Boolean = true,
-        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index",
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName",
         @Header("X-Emby-Authorization") auth: String
     ): EmbyItemsResponse
 
@@ -114,6 +147,32 @@ interface EmbyApiService {
         @Query("Recursive") recursive: Boolean = true,
         @Query("Fields") fields: String = "PrimaryImageAspectRatio,SortName"
     ): EmbyItemsResponse
+
+    @POST("emby/Items/{itemId}/Refresh")
+    suspend fun refreshItem(
+        @Path("itemId") itemId: String,
+        @Header("X-Emby-Authorization") auth: String,
+        @Query("MetadataRefreshMode") metadataRefreshMode: String = "Default",
+        @Query("ImageRefreshMode") imageRefreshMode: String = "Default",
+        @Query("ReplaceAllMetadata") replaceAllMetadata: Boolean = false,
+        @Query("ReplaceAllImages") replaceAllImages: Boolean = false
+    )
+
+    @GET("emby/Items")
+    suspend fun getDirectoryItems(
+        @Query("ParentId") parentId: String,
+        @Query("UserId") userId: String,
+        @Header("X-Emby-Authorization") auth: String,
+        @Query("Fields") fields: String = "Path",
+        @Query("Recursive") recursive: Boolean = false
+    ): EmbyItemsResponse
+
+    @GET("emby/Items/{itemId}/Download")
+    @Streaming
+    suspend fun downloadFile(
+        @Path("itemId") itemId: String,
+        @Header("X-Emby-Authorization") auth: String
+    ): okhttp3.ResponseBody
 }
 
 data class PlaybackProgressInfo(
@@ -166,6 +225,18 @@ data class EmbyItemsResponse(
     val TotalRecordCount: Int
 )
 
+data class SearchHintsResponse(
+    val SearchHints: List<SearchHint>,
+    val TotalRecordCount: Int
+)
+
+data class SearchHint(
+    val Id: String? = null,
+    val ItemId: String? = null,
+    val Name: String? = null,
+    val Type: String? = null
+)
+
 data class EmbyItem(
     val Id: String,
     val Name: String,
@@ -180,8 +251,11 @@ data class EmbyItem(
     val MediaSources: List<MediaSource>? = null,
     val UserData: UserData? = null,
     val RunTimeTicks: Long? = null,
-    val Index: Int? = null,
-    val ParentIndexNumber: Int? = null
+    val IndexNumber: Int? = null,
+    val ParentIndexNumber: Int? = null,
+    val FileName: String? = null,
+    val Filename: String? = null,
+    val SortName: String? = null
 )
 
 data class MediaSource(

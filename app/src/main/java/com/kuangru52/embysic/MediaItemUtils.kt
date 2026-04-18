@@ -10,27 +10,35 @@ import java.util.UUID
 object MediaItemUtils {
     private const val DEVICE_ID = "123456"
 
+    // 整个 App 会话期间的源码播放开关，冷启动自动重置为 false
+    var isForceDirectMode = false
+
     fun buildMediaItem(
         song: EmbyItem,
         serverUrl: String,
         accessToken: String,
-        userId: String
+        userId: String,
+        startMs: Long = 0L,
+        endMs: Long = 0L,
+        forceDirect: Boolean = isForceDirectMode
     ): MediaItem {
         val baseUrl = if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"
         val mediaSourceId = song.MediaSources?.firstOrNull()?.Id ?: song.Id
         val sessionId = UUID.randomUUID().toString().replace("-", "")
 
-        // 优雅方案：使用 /stream 接口伪装成静态文件
-        // 关键点：Static=true 配合 .aac 后缀，诱导 Emby 返回 Content-Length，从而激活 Media3 的原生 Seek
-        val streamUrl = "${baseUrl}emby/Audio/${song.Id}/stream.aac?api_key=$accessToken" +
-                "&DeviceId=$DEVICE_ID" +
-                "&MaxStreamingBitrate=256000" +
-                "&AudioBitrate=256000" +
-                "&AudioCodec=aac" +
-                "&Static=true" +
-                "&MediaSourceId=$mediaSourceId"
+        val streamUrl = if (forceDirect) {
+            "${baseUrl}emby/Audio/${song.Id}/stream?api_key=$accessToken&Static=true&MediaSourceId=$mediaSourceId"
+        } else {
+            "${baseUrl}emby/Audio/${song.Id}/stream.aac?api_key=$accessToken" +
+                    "&DeviceId=$DEVICE_ID" +
+                    "&MaxStreamingBitrate=256000" +
+                    "&AudioBitrate=256000" +
+                    "&AudioCodec=aac" +
+                    "&Static=true" +
+                    "&MediaSourceId=$mediaSourceId"
+        }
 
-        val durationMs = (song.RunTimeTicks ?: 0L) / 10000
+        val durationMs = if (endMs > startMs) (endMs - startMs) else ((song.RunTimeTicks ?: 0L) / 10000)
         val imageId = if (song.ImageTags?.containsKey("Primary") == true) song.Id else song.AlbumId ?: song.Id
         val artworkUrl = "${baseUrl}emby/Items/$imageId/Images/Primary?api_key=$accessToken"
 
@@ -39,16 +47,26 @@ object MediaItemUtils {
             putString("media_source_id", mediaSourceId)
             putString("play_session_id", sessionId)
             putLong("duration_ms", durationMs)
-            putString("codec", "AAC")
-            putInt("bitrate", 256000)
-            putBoolean("is_transcoding", true)
+            val source = song.MediaSources?.firstOrNull()
+            val codec = if (forceDirect) (source?.Container ?: "Source") else "AAC"
+            val bitrate = if (forceDirect) (source?.Bitrate ?: 0) else 256000
+            putString("codec", codec.uppercase())
+            putInt("bitrate", bitrate)
+            putBoolean("is_transcoding", !forceDirect)
             putBoolean("is_favorite", song.UserData?.IsFavorite ?: false)
+            putLong("real_start_ms", startMs)
         }
 
         return MediaItem.Builder()
             .setUri(Uri.parse(streamUrl))
-            .setMediaId(song.Id)
+            .setMediaId(if (startMs > 0) "${song.Id}_$startMs" else song.Id)
             .setMimeType(MimeTypes.AUDIO_AAC)
+            .setClippingConfiguration(
+                MediaItem.ClippingConfiguration.Builder()
+                    .setStartPositionMs(startMs)
+                    .apply { if (endMs > startMs) setEndPositionMs(endMs) }
+                    .build()
+            )
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(song.Name)

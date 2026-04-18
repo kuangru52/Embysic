@@ -1,12 +1,36 @@
 package com.kuangru52.embysic
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.View
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.textfield.TextInputEditText
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -18,13 +42,16 @@ import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var etServer: TextInputEditText
-    private lateinit var etUsername: TextInputEditText
-    private lateinit var etPassword: TextInputEditText
-    private lateinit var btnLogin: MaterialButton
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // 沉浸式状态栏
+        window.apply {
+            clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            statusBarColor = Color.TRANSPARENT
+        }
         
         // 检查是否已经登录
         val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
@@ -33,38 +60,193 @@ class MainActivity : AppCompatActivity() {
         val savedUserId = prefs.getString("user_id", null)
 
         if (!savedServer.isNullOrEmpty() && !savedToken.isNullOrEmpty() && !savedUserId.isNullOrEmpty()) {
-            // 已有登录信息，直接进入主界面
             val intent = android.content.Intent(this, HomeActivity::class.java)
             startActivity(intent)
             finish()
             return
         }
 
-        setContentView(R.layout.activity_main)
-
-        // 初始化视图
-        etServer = findViewById(R.id.etServer)
-        etUsername = findViewById(R.id.etUsername)
-        etPassword = findViewById(R.id.etPassword)
-        btnLogin = findViewById(R.id.btnLogin)
-
-        // 预填调试信息
-        etServer.setText("https://www.kuangru52.eu.org:8097/")
-        etUsername.setText("kuangru52")
-        etPassword.setText("yhwk1747")
-
-        btnLogin.setOnClickListener {
-            val server = etServer.text?.toString()?.trim()
-            val username = etUsername.text?.toString()?.trim()
-            val password = etPassword.text?.toString()?.trim()
-
-            if (server.isNullOrEmpty() || username.isNullOrEmpty()) {
-                Toast.makeText(this, "请输入服务器地址和用户名", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-
-            loginToEmby(server, username, password ?: "")
+        // 使用 Compose 构建登录页面
+        setContent {
+            LoginScreen(
+                onLogin = { server, user, pass -> loginToEmby(server, user, pass) }
+            )
         }
+    }
+
+    @Composable
+    fun LoginScreen(onLogin: (String, String, String) -> Unit) {
+        var server by remember { mutableStateOf("") }
+        var username by remember { mutableStateOf("") }
+        var password by remember { mutableStateOf("") }
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            // 背景图
+            Image(
+                painter = painterResource(id = R.drawable.login),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // 占位，从 45% 高度开始
+                Spacer(modifier = Modifier.fillMaxHeight(0.45f))
+
+                // 输入框容器 - 实现高斯模糊/毛玻璃效果
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(24.dp))
+                        .border(
+                            0.5.dp, 
+                            ComposeColor.White.copy(alpha = 0.2f), 
+                            RoundedCornerShape(24.dp)
+                        ),
+                    color = ComposeColor.White.copy(alpha = 0.45f),
+                    tonalElevation = 12.dp
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        LoginInput(
+                            value = server,
+                            onValueChange = { server = it },
+                            placeholder = "emby地址 https://domain:port/",
+                            isPassword = false
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LoginInput(
+                            value = username,
+                            onValueChange = { username = it },
+                            placeholder = "用户名",
+                            isPassword = false
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        LoginInput(
+                            value = password,
+                            onValueChange = { password = it },
+                            placeholder = "密码",
+                            isPassword = true
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // 登录按钮
+                Surface(
+                    onClick = { onLogin(server, username, password) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(28.dp))
+                        .border(
+                            0.5.dp, 
+                            ComposeColor.White.copy(alpha = 0.4f), 
+                            RoundedCornerShape(28.dp)
+                        ),
+                    color = ComposeColor.White.copy(alpha = 0.2f),
+                    tonalElevation = 8.dp
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "登 录", 
+                            fontSize = 18.sp, 
+                            color = ComposeColor.Black,
+                            style = MaterialTheme.typography.titleMedium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // About Us 按钮
+                Surface(
+                    onClick = {
+                        val intent = android.content.Intent(this@MainActivity, DonationActivity::class.java)
+                        startActivity(intent)
+                    },
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .height(40.dp),
+                    shape = RoundedCornerShape(20.dp),
+                    color = ComposeColor.White.copy(alpha = 0.2f),
+                    border = BorderStroke(
+                        0.5.dp, 
+                        ComposeColor.White.copy(alpha = 0.4f)
+                    ),
+                    tonalElevation = 8.dp
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .padding(horizontal = 32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "About Us",
+                            color = ComposeColor.Black.copy(alpha = 0.7f),
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                // 版权信息
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 24.dp),
+                    contentAlignment = Alignment.BottomCenter
+                ) {
+                    Text(
+                        text = "Embysic  ${BuildConfig.VERSION_NAME}",
+                        color = ComposeColor.Black.copy(alpha = 0.3f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Light
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    fun LoginInput(
+        value: String,
+        onValueChange: (String) -> Unit,
+        placeholder: String,
+        isPassword: Boolean
+    ) {
+        TextField(
+            value = value,
+            onValueChange = onValueChange,
+            modifier = Modifier.fillMaxWidth(),
+            textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start),
+            placeholder = { 
+                Text(
+                    placeholder, 
+                    color = ComposeColor.Black.copy(alpha = 0.4f)
+                ) 
+            },
+            visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = ComposeColor.Transparent,
+                unfocusedContainerColor = ComposeColor.Transparent,
+                disabledContainerColor = ComposeColor.Transparent,
+                focusedIndicatorColor = ComposeColor.Black.copy(alpha = 0.4f),
+                unfocusedIndicatorColor = ComposeColor.Black.copy(alpha = 0.1f),
+                focusedTextColor = ComposeColor.Black,
+                unfocusedTextColor = ComposeColor.Black
+            ),
+            singleLine = true
+        )
     }
 
     private fun loginToEmby(server: String, username: String, password: String) {
@@ -73,7 +255,7 @@ class MainActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
+                val result = withContext(Dispatchers.IO) {
                     val client = OkHttpClient()
                     
                     val json = JSONObject().apply {
@@ -83,8 +265,7 @@ class MainActivity : AppCompatActivity() {
 
                     val requestBody = json.toString().toRequestBody("application/json".toMediaType())
 
-                    // Emby 要求在头部提供客户端信息
-                    val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.0\""
+                    val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"${BuildConfig.VERSION_NAME}\""
 
                     val request = Request.Builder()
                         .url(url)
@@ -92,21 +273,26 @@ class MainActivity : AppCompatActivity() {
                         .addHeader("X-Emby-Authorization", authHeader)
                         .build()
 
-                    client.newCall(request).execute()
+                    val response = client.newCall(request).execute()
+                    if (response.isSuccessful) {
+                        val body = response.body?.string()
+                        Pair(true, body)
+                    } else {
+                        Pair(false, response.message)
+                    }
                 }
 
-                if (response.isSuccessful) {
-                    val responseBody = response.body?.string()
+                if (result.first) {
+                    val responseBody = result.second
                     val jsonResponse = JSONObject(responseBody ?: "{}")
                     val accessToken = jsonResponse.optString("AccessToken")
                     val userObj = jsonResponse.optJSONObject("User")
                     val userId = userObj?.optString("Id") ?: ""
-                    val serverUrl = cleanServer
 
                     // 保存登录信息
                     val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
                     prefs.edit().apply {
-                        putString("server_url", serverUrl)
+                        putString("server_url", cleanServer)
                         putString("access_token", accessToken)
                         putString("user_id", userId)
                         apply()
@@ -120,12 +306,9 @@ class MainActivity : AppCompatActivity() {
                     startActivity(intent)
                     finish() // 登录成功后销毁登录页面
                 } else {
-                    val errorMsg = when(response.code) {
-                        401 -> "用户名或密码错误"
-                        else -> "服务器返回错误: ${response.code}"
-                    }
+                    val errorMsg = result.second ?: "服务器返回错误"
                     Toast.makeText(this@MainActivity, errorMsg, Toast.LENGTH_SHORT).show()
-                    Log.e("EmbyLogin", "Failed: ${response.code} ${response.message}")
+                    Log.e("EmbyLogin", "Failed: $errorMsg")
                 }
             } catch (e: Exception) {
                 Toast.makeText(this@MainActivity, "连接失败: ${e.message}", Toast.LENGTH_SHORT).show()

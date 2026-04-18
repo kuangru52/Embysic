@@ -16,6 +16,7 @@ media3 = "1.5.1"
 coil = "2.7.0"
 transformers-coil = "1.0.6"
 backdrop = "1.0.6"
+qmblurview = "1.1.4"
 androidx-compose-bom = "2024.12.01"
 
 [libraries]
@@ -38,6 +39,7 @@ coil = { group = "io.coil-kt", name = "coil", version.ref = "coil" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
 transformers-coil = { group = "jp.wasabeef.transformers", name = "coil", version.ref = "transformers-coil" }
 backdrop = { group = "io.github.kyant0", name = "backdrop", version.ref = "backdrop" }
+qmblurview = { group = "com.qmdeve.blurview", name = "core", version.ref = "qmblurview" }
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "androidx-compose-bom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }

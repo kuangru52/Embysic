@@ -11,8 +11,8 @@ android {
         applicationId = "com.kuangru52.embysic"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 12
+        versionName = "1.34"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -32,6 +32,19 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
+    }
+}
+
+// 修改生成的 APK 文件名为：软件名-版本号.apk
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            val name = "Embysic-${output.versionName.get()}.apk"
+            if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
+                output.outputFileName.set(name)
+            }
+        }
     }
 }
 

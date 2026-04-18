@@ -33,4 +33,7 @@
     <color name="on_background_dark">#F1DFDA</color>
     <color name="surface_dark">#1A110F</color>
     <color name="on_surface_dark">#F1DFDA</color>
+
+    <!-- 最近/收藏页深色模式背景 -->
+    <color name="recent_bg_dark">#121212</color>
 </resources>

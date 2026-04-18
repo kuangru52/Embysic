@@ -43,7 +43,8 @@ data class NeteaseSearchSong(
     val id: Long,
     val name: String,
     val artists: List<NeteaseArtist>?,
-    val album: NeteaseAlbum?
+    val album: NeteaseAlbum?,
+    val duration: Long? // 时长，单位毫秒
 )
 
 data class NeteaseSong(

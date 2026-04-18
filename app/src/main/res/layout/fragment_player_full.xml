@@ -4,32 +4,23 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?attr/colorSurface">
+    android:background="@drawable/bg_player_full"
+    android:clipToOutline="true">
 
     <ImageView
         android:id="@+id/ivBlurBackground"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
-        android:alpha="0.4"
+        android:alpha="0.6"
         tools:ignore="ContentDescription" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:paddingHorizontal="24dp">
-
-        <!-- 顶部拖动手柄 -->
-        <View
-            android:id="@+id/dragHandle"
-            android:layout_width="40dp"
-            android:layout_height="4dp"
-            android:layout_gravity="center_horizontal"
-            android:layout_marginTop="20dp"
-            android:layout_marginBottom="12dp"
-            android:background="?attr/colorOnSurfaceVariant"
-            android:alpha="0.2" />
+        android:paddingHorizontal="24dp"
+        android:paddingTop="56dp">
 
         <!-- 封面图与歌词容器 -->
         <FrameLayout
@@ -119,8 +110,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="Song Title"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textSize="24sp"
+                    android:textColor="@android:color/white"
+                    android:shadowColor="#80000000"
+                    android:shadowDx="2"
+                    android:shadowDy="2"
+                    android:shadowRadius="4"
+                    android:textSize="26sp"
                     android:textStyle="bold"
                     android:ellipsize="marquee"
                     android:singleLine="true" />
@@ -129,10 +124,10 @@
                     android:id="@+id/tvFullArtist"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
+                    android:layout_marginTop="4dp"
                     android:text="Artist Name"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="16sp" />
+                    android:textColor="#E0FFFFFF"
+                    android:textSize="18sp" />
             </LinearLayout>
 
             <ImageButton
@@ -141,7 +136,7 @@
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:src="@drawable/ic_heart_border"
-                app:tint="?attr/colorOnSurface" />
+                app:tint="@android:color/white" />
         </LinearLayout>
 
         <!-- 播放质量标签 -->
@@ -149,10 +144,9 @@
             android:id="@+id/tvAudioQuality"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="11sp"
-            android:alpha="0.8"
+            android:layout_marginTop="6dp"
+            android:textColor="#B3FFFFFF"
+            android:textSize="12sp"
             tools:text="AAC 256kbps" />
 
         <!-- 下载进度条 -->
@@ -176,6 +170,9 @@
             android:layout_marginTop="16dp"
             android:paddingStart="0dp"
             android:paddingEnd="0dp"
+            android:background="@null"
+            android:splitTrack="false"
+            android:stateListAnimator="@null"
             android:progressTint="?attr/colorPrimary"
             android:thumbTint="?attr/colorPrimary" />
 
@@ -188,8 +185,8 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="0:00"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="12sp" />
+                android:textColor="#B3FFFFFF"
+                android:textSize="13sp" />
 
             <TextView
                 android:id="@+id/tvTotalTime"
@@ -197,8 +194,8 @@
                 android:layout_height="wrap_content"
                 android:layout_alignParentEnd="true"
                 android:text="0:00"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="12sp" />
+                android:textColor="#B3FFFFFF"
+                android:textSize="13sp" />
         </RelativeLayout>
 
         <!-- 控制按钮区域 -->
@@ -212,34 +209,34 @@
 
             <ImageButton
                 android:id="@+id/btnPrev"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="12dp"
                 android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_media_previous"
-                app:tint="?attr/colorOnSurface" />
+                android:src="@drawable/ic_skip_previous_vector"
+                app:tint="@android:color/white" />
 
             <ImageButton
                 android:id="@+id/btnPlayPauseFull"
-                android:layout_width="72dp"
-                android:layout_height="72dp"
+                android:layout_width="84dp"
+                android:layout_height="84dp"
                 android:layout_marginHorizontal="32dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
+                android:padding="4dp"
                 android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_media_play"
-                app:tint="?attr/colorOnSurface" />
+                android:src="@drawable/ic_play_vector"
+                app:tint="@android:color/white" />
 
             <ImageButton
                 android:id="@+id/btnNext"
-                android:layout_width="56dp"
-                android:layout_height="56dp"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="12dp"
                 android:scaleType="fitCenter"
-                android:src="@android:drawable/ic_media_next"
-                app:tint="?attr/colorOnSurface" />
+                android:src="@drawable/ic_skip_next_vector"
+                app:tint="@android:color/white" />
 
         </LinearLayout>
 

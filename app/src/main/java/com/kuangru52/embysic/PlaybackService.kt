@@ -21,6 +21,11 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.google.common.collect.ImmutableList
+import androidx.media3.session.CommandButton
+import androidx.media3.session.DefaultMediaNotificationProvider
+import androidx.media3.session.MediaNotification
+import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -71,7 +76,7 @@ class PlaybackService : MediaSessionService() {
         
         // 1. 构建支持缓存的数据源
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("Embysic/1.0.0")
+            .setUserAgent("Embysic/1.12")
             .setDefaultRequestProperties(mapOf("X-Emby-Token" to accessToken))
 
         val cacheDataSourceFactory = CacheDataSource.Factory()
@@ -208,6 +213,30 @@ class PlaybackService : MediaSessionService() {
                         .build()
                 }
             }).build()
+
+        // 使用包装器来实现自定义 Provider
+        val defaultProvider = DefaultMediaNotificationProvider(this)
+        setMediaNotificationProvider(object : MediaNotification.Provider {
+            override fun createNotification(
+                session: MediaSession,
+                customLayout: ImmutableList<CommandButton>,
+                actionFactory: MediaNotification.ActionFactory,
+                onNotificationChangedCallback: MediaNotification.Provider.Callback
+            ): MediaNotification {
+                val mediaNotification = defaultProvider.createNotification(
+                    session, customLayout, actionFactory, onNotificationChangedCallback
+                )
+                // 设置颜色为极低不透明度的白色，营造玻璃感
+                mediaNotification.notification.color = 0x1EFFFFFF.toInt()
+                // 禁用颜色化背景，以尝试获得更透明的系统默认效果
+                mediaNotification.notification.extras.putBoolean("android.colorized", false)
+                return mediaNotification
+            }
+
+            override fun handleCustomCommand(session: MediaSession, action: String, extras: Bundle): Boolean {
+                return defaultProvider.handleCustomCommand(session, action, extras)
+            }
+        })
     }
 
     private fun initApiService() {
@@ -228,7 +257,7 @@ class PlaybackService : MediaSessionService() {
         val accessToken = prefs.getString("access_token", "") ?: ""
         val userId = prefs.getString("user_id", "") ?: ""
         // 完全对标 SPlayer 的 Header 格式
-        return "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.0\", Token=\"$accessToken\", UserId=\"$userId\""
+        return "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.12\", Token=\"$accessToken\", UserId=\"$userId\""
     }
 
     private var isStartReported = false

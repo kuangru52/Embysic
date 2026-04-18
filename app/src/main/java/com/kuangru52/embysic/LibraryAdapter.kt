@@ -66,13 +66,14 @@ class LibraryAdapter(
             ivIcon.setImageDrawable(null)
             ivIcon.clearColorFilter()
             ImageViewCompat.setImageTintList(ivIcon, null)
-            ivIcon.background = null // 关键：彻底移除 XML 中设置的灰色背景
+            // ivIcon.background = null // 删掉这一行，否则圆角背景会被清除
 
             // 判定是否是文件夹类项目
             val isFolderLike = item.IsFolder || item.Type == "CollectionFolder" || item.Type == "MusicArtist" || item.Type == "MusicAlbum"
 
             if (isFolderLike) {
                 ivIcon.tag = "IS_FOLDER"
+                ivIcon.clipToOutline = true
                 
                 // 2. 加载您的自定义 folder.png
                 ivIcon.setImageResource(R.drawable.folder)
@@ -86,13 +87,16 @@ class LibraryAdapter(
                 tvIndex.visibility = View.GONE
             } else {
                 // 歌曲显示封面
+                tvIndex.visibility = View.VISIBLE
+                ivIcon.clipToOutline = true
                 tvArtist.visibility = View.VISIBLE
                 tvArtist.text = item.Artists?.joinToString(", ") ?: ""
                 
-                tvIndex.visibility = if (item.Index != null) {
-                    tvIndex.text = String.format("%02d", item.Index)
-                    View.VISIBLE
-                } else View.GONE
+                if (item.IndexNumber != null) {
+                    tvIndex.text = String.format("%02d", item.IndexNumber)
+                } else {
+                    tvIndex.text = ""
+                }
 
                 ivIcon.tag = item.Id
                 ivIcon.scaleType = ImageView.ScaleType.CENTER_CROP
@@ -116,8 +120,8 @@ class LibraryAdapter(
                             addHeader("X-Emby-Token", accessToken)
                         }
                         crossfade(true)
-                        placeholder(android.R.drawable.ic_menu_gallery)
-                        error(android.R.drawable.ic_media_play)
+                        placeholder(R.drawable.cd)
+                        error(R.drawable.cd)
                         listener(onError = { _, _ -> 
                             if (finalImageUrl == serverImageUrl) {
                                 loadCoverFromTags(item, serverUrl, accessToken)

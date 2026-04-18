@@ -104,12 +104,14 @@ class RecentFragment : Fragment() {
         lifecycleScope.launch {
             progressBar.visibility = View.VISIBLE
             try {
-                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.0\", Token=\"$accessToken\""
+                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.5\", Token=\"$accessToken\""
                 // 改为调用 getRecentlyPlayedItems 获取真正的最近播放列表
                 val response = service.getRecentlyPlayedItems(userId, auth = authHeader)
                 adapter.submitList(response.Items)
             } catch (e: Exception) {
-                Toast.makeText(context, "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                if (e !is kotlinx.coroutines.CancellationException) {
+                    Toast.makeText(context, "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             } finally {
                 progressBar.visibility = View.GONE
             }

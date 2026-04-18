@@ -1,0 +1,247 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?attr/colorSurface">
+
+    <ImageView
+        android:id="@+id/ivBlurBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0.4"
+        tools:ignore="ContentDescription" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingHorizontal="24dp">
+
+        <!-- 椤堕儴鎷栧姩鎵嬫焺 -->
+        <View
+            android:id="@+id/dragHandle"
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="12dp"
+            android:background="?attr/colorOnSurfaceVariant"
+            android:alpha="0.2" />
+
+        <!-- 灏侀潰鍥句笌姝岃瘝瀹瑰櫒 -->
+        <FrameLayout
+            android:id="@+id/contentContainer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <!-- 鍞辩墖鏈哄鍣?-->
+            <RelativeLayout
+                android:id="@+id/rlDiscContainer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <!-- 鍞辩墖榛戣兌鏃嬭浆瀹瑰櫒 -->
+                <FrameLayout
+                    android:id="@+id/rlDisc"
+                    android:layout_width="330dp"
+                    android:layout_height="330dp"
+                    android:layout_centerInParent="true">
+
+                    <ImageView
+                        android:id="@+id/ivDisc"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/disk"
+                        android:scaleType="fitCenter" />
+
+                    <androidx.cardview.widget.CardView
+                        android:id="@+id/cvCover"
+                        android:layout_width="216dp"
+                        android:layout_height="216dp"
+                        android:layout_gravity="center"
+                        app:cardCornerRadius="108dp"
+                        app:cardElevation="0dp">
+
+                        <ImageView
+                            android:id="@+id/ivFullCover"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:scaleType="centerCrop"
+                            tools:src="@android:drawable/ic_menu_gallery" />
+                    </androidx.cardview.widget.CardView>
+                </FrameLayout>
+
+                <!-- 鍞遍拡 -->
+                <ImageView
+                    android:id="@+id/ivNeedle"
+                    android:layout_width="110dp"
+                    android:layout_height="180dp"
+                    android:layout_centerHorizontal="true"
+                    android:layout_alignTop="@id/rlDisc"
+                    android:layout_marginTop="-80dp"
+                    android:translationX="65dp"
+                    android:src="@drawable/styli2"
+                    android:scaleType="fitCenter"
+                    android:transformPivotX="28dp"
+                    android:transformPivotY="28dp" />
+            </RelativeLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvLyrics"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone"
+                android:paddingTop="200dp"
+                android:paddingBottom="200dp"
+                android:clipToPadding="false" />
+        </FrameLayout>
+
+        <!-- 淇℃伅鍖哄煙 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="16dp"
+            android:gravity="center_vertical">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvFullTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Song Title"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:ellipsize="marquee"
+                    android:singleLine="true" />
+
+                <TextView
+                    android:id="@+id/tvFullArtist"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Artist Name"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="16sp" />
+            </LinearLayout>
+
+            <ImageButton
+                android:id="@+id/btnMore"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:src="@drawable/ic_heart_border"
+                app:tint="?attr/colorOnSurface" />
+        </LinearLayout>
+
+        <!-- 鎾斁璐ㄩ噺鏍囩 -->
+        <TextView
+            android:id="@+id/tvAudioQuality"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="11sp"
+            android:alpha="0.8"
+            tools:text="AAC 256kbps" />
+
+        <!-- 涓嬭浇杩涘害鏉?-->
+        <ProgressBar
+            android:id="@+id/pbDownload"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:layout_marginTop="16dp"
+            android:progress="0"
+            android:max="100"
+            android:visibility="gone"
+            android:progressTint="?attr/colorPrimary"
+            android:progressBackgroundTint="?attr/colorSurfaceVariant" />
+
+        <!-- 杩涘害鏉″尯鍩?-->
+        <SeekBar
+            android:id="@+id/seekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp"
+            android:progressTint="?attr/colorPrimary"
+            android:thumbTint="?attr/colorPrimary" />
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <TextView
+                android:id="@+id/tvCurrentTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0:00"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp" />
+
+            <TextView
+                android:id="@+id/tvTotalTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:text="0:00"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="12sp" />
+        </RelativeLayout>
+
+        <!-- 鎺у埗鎸夐挳鍖哄煙 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="48dp"
+            android:gravity="center"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/btnPrev"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="12dp"
+                android:scaleType="fitCenter"
+                android:src="@android:drawable/ic_media_previous"
+                app:tint="?attr/colorOnSurface" />
+
+            <ImageButton
+                android:id="@+id/btnPlayPauseFull"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:layout_marginHorizontal="32dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:scaleType="fitCenter"
+                android:src="@android:drawable/ic_media_play"
+                app:tint="?attr/colorOnSurface" />
+
+            <ImageButton
+                android:id="@+id/btnNext"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="12dp"
+                android:scaleType="fitCenter"
+                android:src="@android:drawable/ic_media_next"
+                app:tint="?attr/colorOnSurface" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+</FrameLayout>

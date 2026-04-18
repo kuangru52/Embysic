@@ -6,6 +6,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
 
+    <queries>
+        <package android:name="com.eg.android.AlipayGphone" />
+    </queries>
+
     <application
         android:usesCleartextTraffic="true"
         android:allowBackup="true"
@@ -39,6 +43,11 @@
         <activity
             android:name=".HomeActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".DonationActivity"
+            android:exported="false"
+            android:label="捐赠" />
     </application>
 
 </manifest>

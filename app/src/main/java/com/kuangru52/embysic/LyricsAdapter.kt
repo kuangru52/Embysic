@@ -50,29 +50,29 @@ class LyricsAdapter(private val onLineClick: (Long) -> Unit) : RecyclerView.Adap
         val textView = holder.itemView.findViewById<TextView>(R.id.tvLyricLine)
         textView.text = line.text
         textView.textAlignment = View.TEXT_ALIGNMENT_CENTER
-        textView.setPadding(0, 32, 0, 32)
+        textView.setPadding(32, 48, 32, 48) // 增加间距
+        
+        // 增加文字阴影，防止背景亮时看不清
+        textView.setShadowLayer(4f, 2f, 2f, 0x80000000.toInt())
         
         val isMetadata = line.timeMs == -1L
         
-        val context = holder.itemView.context
-        val colorOnSurface = context.getColorFromAttr(com.google.android.material.R.attr.colorOnSurface)
-        val colorOnSurfaceVariant = context.getColorFromAttr(com.google.android.material.R.attr.colorOnSurfaceVariant)
-
         if (isMetadata) {
-            textView.setTextColor(colorOnSurfaceVariant)
-            textView.textSize = 14f
-            textView.alpha = 0.6f
+            textView.setTextColor(0x99FFFFFF.toInt()) // 半透明白
+            textView.textSize = 15f
+            textView.alpha = 1.0f
+            textView.paint.isFakeBoldText = false
             textView.setOnClickListener(null)
         } else {
             if (position == currentLineIndex) {
-                textView.setTextColor(colorOnSurface)
-                textView.textSize = 22f
+                textView.setTextColor(android.graphics.Color.WHITE) // 纯白
+                textView.textSize = 24f
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = true
             } else {
-                textView.setTextColor(colorOnSurfaceVariant)
-                textView.textSize = 18f
-                textView.alpha = 0.5f
+                textView.setTextColor(0x66FFFFFF.toInt()) // 更明显的非激活态透明度
+                textView.textSize = 20f
+                textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = false
             }
             

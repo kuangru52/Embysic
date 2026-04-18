@@ -13,6 +13,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.GestureDetector
+import android.view.MotionEvent
 import android.content.res.Configuration
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -147,12 +149,23 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }
     }
 
+    private var lastClickTime = 0L
+    private var clickCount = 0
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        // 应用全透明沉浸式主题
+        setStyle(STYLE_NORMAL, R.style.Theme_PlayerBottomSheet)
+    }
+
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = super.onCreateDialog(savedInstanceState) as BottomSheetDialog
         dialog.behavior.apply {
+            isFitToContents = false // 关键：允许全屏高度
             state = BottomSheetBehavior.STATE_EXPANDED
             skipCollapsed = true
             isHideable = true
+            expandedOffset = 0
         }
         dialog.window?.setWindowAnimations(R.style.PlayerDialogAnimation)
         return dialog
@@ -162,20 +175,46 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         super.onStart()
         val dialog = dialog as? BottomSheetDialog
         dialog?.let {
+            // 1. 强制全屏容器
             val bottomSheet = it.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
             bottomSheet?.let { sheet ->
-                sheet.layoutParams.height = ViewGroup.LayoutParams.MATCH_PARENT
+                val params = sheet.layoutParams
+                params.height = ViewGroup.LayoutParams.MATCH_PARENT
+                sheet.layoutParams = params
+                
                 sheet.setBackgroundColor(Color.TRANSPARENT)
+                sheet.elevation = 0f
+                // 移除所有系统注入的 Insets 监听，防止其自动增加底边距
+                androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(sheet) { _, insets -> insets }
             }
-            
+
+            // 2. 彻底透明化所有中间层
+            it.findViewById<View>(com.google.android.material.R.id.container)?.setBackgroundColor(Color.TRANSPARENT)
+            it.findViewById<View>(com.google.android.material.R.id.coordinator)?.setBackgroundColor(Color.TRANSPARENT)
+            it.findViewById<View>(com.google.android.material.R.id.touch_outside)?.setBackgroundColor(Color.TRANSPARENT)
+
             it.window?.let { window ->
+                // 3. 终极沉浸：允许内容突破窗口边界，覆盖状态栏和导航栏
+                window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.TRANSPARENT))
+                window.setDimAmount(0.6f)
+                
+                // 强制 Window 尺寸为物理屏幕全屏
                 window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-                window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+                
+                // 关键标志：允许窗口扩展到屏幕外（即忽略状态栏和导航栏的占位限制）
+                window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
                 window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+                
+                // 禁用自动 Insets 适配
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                
                 window.statusBarColor = Color.TRANSPARENT
                 window.navigationBarColor = Color.TRANSPARENT
                 
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    window.isNavigationBarContrastEnforced = false
+                }
+
                 val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
                 val controller = WindowInsetsControllerCompat(window, window.decorView)
                 controller.isAppearanceLightStatusBars = !isDark
@@ -244,24 +283,146 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         btnMore.setOnClickListener { toggleFavorite() }
         rlDisc.setOnClickListener { showLyrics() }
         
-        val contentContainer = view.findViewById<View>(R.id.contentContainer)
-        contentContainer.setOnClickListener {
-            if (rvLyrics.isVisible) hideLyrics() else showLyrics()
+        tvAudioQuality.setOnClickListener {
+            val now = System.currentTimeMillis()
+            if (now - lastClickTime < 500) {
+                clickCount++
+            } else {
+                clickCount = 1
+            }
+            lastClickTime = now
+
+            if (clickCount >= 5) {
+                MediaItemUtils.isForceDirectMode = !MediaItemUtils.isForceDirectMode
+                clickCount = 0
+                val modeText = if (MediaItemUtils.isForceDirectMode) "已开启源码播放模式" else "已恢复自动转码模式"
+                Toast.makeText(context, modeText, Toast.LENGTH_SHORT).show()
+                
+                // 立即重新构建 MediaItem 并播放，以应用新模式
+                player?.let { p ->
+                    val currentItem = p.currentMediaItem
+                    val currentPos = p.currentPosition
+                    if (currentItem != null) {
+                        lifecycleScope.launch {
+                            val prefs = requireContext().getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)
+                            val serverUrl = prefs.getString("server_url", "") ?: ""
+                            val accessToken = prefs.getString("access_token", "") ?: ""
+                            val userId = prefs.getString("user_id", "") ?: ""
+                            
+                            val itemId = currentItem.mediaId
+                            val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
+                            
+                            try {
+                                val song = apiService?.getItem(userId, itemId, authHeader)
+                                if (song != null) {
+                                    val newMediaItem = MediaItemUtils.buildMediaItem(
+                                        song, serverUrl, accessToken, userId, forceDirect = MediaItemUtils.isForceDirectMode
+                                    )
+                                    p.setMediaItem(newMediaItem, false) // 替换当前项
+                                    p.seekTo(currentPos)
+                                    p.prepare()
+                                    p.play()
+                                }
+                            } catch (e: Exception) {
+                                Log.e("PlayerDialog", "Switch mode error", e)
+                            }
+                        }
+                    }
+                }
+            }
         }
         
-        rvLyrics.setOnClickListener { hideLyrics() }
+        val contentContainer = view.findViewById<View>(R.id.contentContainer)
+        
+        // 实现“跟随手指”的侧滑返回逻辑
+        var initialX = 0f
+        var isSwiping = false
+        val swipeTouchListener = View.OnTouchListener { v, event ->
+            // 如果歌词界面显示中，且不是从屏幕最左侧（边缘 100 像素内）滑动，则将触摸事件交给子视图（RecyclerView）
+            if (rvLyrics.isVisible && event.rawX > 100) return@OnTouchListener false
+
+            val bsd = dialog as? BottomSheetDialog
+            val bottomSheet = bsd?.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet) ?: return@OnTouchListener false
+            
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    initialX = event.rawX
+                    isSwiping = false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val deltaX = event.rawX - initialX
+                    if (deltaX > 50 && !isSwiping) {
+                        isSwiping = true
+                    }
+                    if (isSwiping && deltaX > 0) {
+                        bottomSheet.translationX = deltaX
+                        bottomSheet.alpha = 1f - (deltaX / bottomSheet.width) * 0.5f
+                        return@OnTouchListener true
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isSwiping) {
+                        val deltaX = event.rawX - initialX
+                        if (deltaX > bottomSheet.width / 3) {
+                            bottomSheet.animate()
+                                .translationX(bottomSheet.width.toFloat())
+                                .alpha(0f)
+                                .setDuration(200)
+                                .withEndAction {
+                                    bsd.dismissWithAnimation = false
+                                    dismiss()
+                                }
+                                .start()
+                        } else {
+                            bottomSheet.animate()
+                                .translationX(0f)
+                                .alpha(1f)
+                                .setDuration(200)
+                                .start()
+                        }
+                        return@OnTouchListener true
+                    }
+                }
+            }
+            false
+        }
+
+        contentContainer.setOnTouchListener(swipeTouchListener)
+        
+        // 歌词列表交互逻辑：单击返回唱片，滑动查看歌词
+        rvLyrics.addOnItemTouchListener(object : RecyclerView.SimpleOnItemTouchListener() {
+            private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                    hideLyrics()
+                    return true
+                }
+            })
+
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: MotionEvent): Boolean {
+                gestureDetector.onTouchEvent(e)
+                // 抬起手指时，如果处于用户滚动状态，启动 3 秒回弹计时
+                if (e.action == MotionEvent.ACTION_UP || e.action == MotionEvent.ACTION_CANCEL) {
+                    if (isUserScrollingLyrics) {
+                        handler.removeCallbacks(resumeAutoScrollRunnable)
+                        handler.postDelayed(resumeAutoScrollRunnable, 3000)
+                    }
+                }
+                return false
+            }
+        })
         
         rvLyrics.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
                     isUserScrollingLyrics = true
                     handler.removeCallbacks(resumeAutoScrollRunnable)
-                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
-                    handler.removeCallbacks(resumeAutoScrollRunnable)
-                    handler.postDelayed(resumeAutoScrollRunnable, 3000)
                 }
             }
         })
+
+        contentContainer.setOnClickListener {
+            if (rvLyrics.isVisible) hideLyrics() else showLyrics()
+        }
 
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
@@ -286,12 +447,12 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                     updateMetadata(mediaItem)
                 }
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    btnPlayPause.setImageResource(if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+                    btnPlayPause.setImageResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow)
                     updateNeedle(isPlaying)
                 }
             })
             it.repeatMode = Player.REPEAT_MODE_ALL
-            btnPlayPause.setImageResource(if (it.isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play)
+            btnPlayPause.setImageResource(if (it.isPlaying) R.drawable.ic_pause else R.drawable.ic_play_arrow)
             updateNeedle(it.isPlaying)
 
             updateMetadata(it.currentMediaItem)
@@ -322,10 +483,24 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             val extras = it.extras
             if (extras != null) {
                 updateFavoriteIcon(extras.getBoolean("is_favorite", false))
-                val isTranscoding = extras.getBoolean("is_transcoding", false)
                 val codec = extras.getString("codec", "未知")
                 val bitrate = extras.getInt("bitrate", 0) / 1000
-                tvAudioQuality.text = if (isTranscoding) "正在转码: $codec ${bitrate}kbps" else "$codec ${bitrate}kbps"
+                val isTranscoding = extras.getBoolean("is_transcoding", false)
+                
+                if (isTranscoding) {
+                    tvAudioQuality.text = "正在转码: $codec ${bitrate}kbps"
+                } else {
+                    val isForce = MediaItemUtils.isForceDirectMode
+                    val text = if (isForce) "⚠️ $codec ${bitrate}kbps (源码)" else "$codec ${bitrate}kbps"
+                    val spannable = android.text.SpannableString(text)
+                    if (isForce) {
+                        spannable.setSpan(
+                            android.text.style.ForegroundColorSpan(android.graphics.Color.YELLOW),
+                            0, 2, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                        )
+                    }
+                    tvAudioQuality.text = spannable
+                }
                 tvAudioQuality.visibility = View.VISIBLE
             } else {
                 tvAudioQuality.visibility = View.GONE
@@ -376,8 +551,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             btnMore.setColorFilter(Color.RED, android.graphics.PorterDuff.Mode.SRC_IN)
         } else {
             btnMore.setImageResource(R.drawable.ic_heart_border)
-            val colorOnSurface = getColorFromAttr(com.google.android.material.R.attr.colorOnSurface)
-            btnMore.setColorFilter(colorOnSurface, android.graphics.PorterDuff.Mode.SRC_IN)
+            btnMore.setColorFilter(Color.WHITE, android.graphics.PorterDuff.Mode.SRC_IN)
         }
     }
 
@@ -530,19 +704,62 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
     }
 
     private fun searchNeteaseLyrics(itemId: String, title: String?, artist: String?) {
-        val cleanedTitle = title?.replace(Regex("\\s*[([\\[].*[\\])]]"), "")?.trim() ?: ""
+        val cleanedTitle = title?.replace(Regex("(?i)\\s*([(\\[](?!.*feat).*?[)\\]])"), "")?.trim() ?: ""
         val isUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
         val query = if (isUnknown) cleanedTitle else "$cleanedTitle $artist"
         if (query.isEmpty()) { showNoLyrics(itemId, title, artist); return }
 
+        val currentDuration = player?.duration ?: 0L
+
         lifecycleScope.launch {
             try {
-                val searchResponse = neteaseApi.searchSong(query)
-                val song = searchResponse.result?.songs?.firstOrNull() ?: throw Exception("Not found")
-                val lyricResponse = neteaseApi.getLyric(song.id)
+                val searchResponse = neteaseApi.searchSong(query, limit = 10)
+                val songs = searchResponse.result?.songs
+                
+                if (songs.isNullOrEmpty()) {
+                    if (!isUnknown) searchNeteaseLyrics(itemId, cleanedTitle, null)
+                    else showNoLyrics(itemId, title, artist)
+                    return@launch
+                }
+
+                // 评分系统：结合 歌名、歌手、时长
+                val bestMatch = songs.maxByOrNull { song ->
+                    var score = 0
+                    // 1. 歌名匹配 (权重 15)
+                    if (song.name.equals(cleanedTitle, ignoreCase = true)) score += 15
+                    else if (song.name.contains(cleanedTitle, ignoreCase = true)) score += 8
+                    
+                    // 2. 歌手匹配 (权重 15)
+                    val songArtists = song.artists?.map { it.name } ?: emptyList()
+                    if (!isUnknown && artist != null) {
+                        if (songArtists.any { it.equals(artist, ignoreCase = true) }) score += 15
+                        else if (songArtists.any { it.contains(artist, ignoreCase = true) }) score += 7
+                    }
+                    
+                    // 3. 时长匹配 (权重 20) - 核心优化
+                    if (currentDuration > 0 && (song.duration ?: 0) > 0) {
+                        val diff = Math.abs(currentDuration - (song.duration ?: 0))
+                        when {
+                            diff < 2000 -> score += 20  // 2秒内误差，极大概率是同一首歌
+                            diff < 5000 -> score += 10  // 5秒内误差
+                            diff > 30000 -> score -= 15 // 误差超过30秒，可能是不同版本或广告
+                        }
+                    }
+                    
+                    // 4. 排除干扰 (如 Live)
+                    if (!cleanedTitle.contains("Live", true) && song.name.contains("Live", true)) score -= 10
+                    
+                    score
+                } ?: songs.first()
+
+                val lyricResponse = neteaseApi.getLyric(bestMatch.id)
                 val lrcText = lyricResponse.lrc?.lyric
                 if (!lrcText.isNullOrBlank()) {
-                    val metadata = mutableListOf(LrcLine(-1, title ?: "未知曲名"), LrcLine(-1, artist ?: "未知歌手"), LrcLine(-1, "来源: 网易云音乐"))
+                    val metadata = mutableListOf(
+                        LrcLine(-1, bestMatch.name),
+                        LrcLine(-1, bestMatch.artists?.joinToString("/") { it.name } ?: (artist ?: "未知歌手")),
+                        LrcLine(-1, "来源: 网易云音乐 (智能匹配)")
+                    )
                     val mainLyrics = LrcParser.parse(lrcText)
                     val tlyricText = lyricResponse.tlyric?.lyric
                     val finalLines = if (!tlyricText.isNullOrBlank()) metadata + mergeLyrics(mainLyrics, LrcParser.parse(tlyricText)) else metadata + mainLyrics
@@ -552,8 +769,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                     }
                 } else { showNoLyrics(itemId, title, artist) }
             } catch (_: Exception) { 
-                if (!isUnknown && cleanedTitle.isNotEmpty()) searchNeteaseLyrics(itemId, cleanedTitle, null)
-                else showNoLyrics(itemId, title, artist)
+                showNoLyrics(itemId, title, artist)
             }
         }
     }

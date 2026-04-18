@@ -6,4 +6,28 @@
     <string name="password">Password</string>
     <string name="login_button">Login</string>
     <string name="server_address_hint">http://your-emby-server:8096</string>
+
+    <!-- Navigation -->
+    <string name="nav_recent">Recent</string>
+    <string name="nav_favorite">Favorite</string>
+    <string name="nav_library">Library</string>
+    <string name="nav_search">Search</string>
+
+    <!-- Player -->
+    <string name="not_playing">Not Playing</string>
+    <string name="song_title">Song Title</string>
+    <string name="artist_name">Artist Name</string>
+    <string name="search_hint">Search songs, artists…</string>
+
+    <!-- Status and Messages -->
+    <string name="loading_lyrics">Loading lyrics…</string>
+    <string name="transcoding">Transcoding: </string>
+    <string name="no_lyrics">Online lyrics not found</string>
+    <string name="unknown_song">Unknown Song</string>
+    <string name="unknown_artist">Unknown Artist</string>
+    <string name="source_netease">Source: Netease Cloud Music</string>
+    <string name="added_to_favorites">Added to favorites</string>
+    <string name="removed_from_favorites">Removed from favorites</string>
+    <string name="sync_failed">Sync failed</string>
+    <string name="press_again_to_exit">Press again to exit</string>
 </resources>

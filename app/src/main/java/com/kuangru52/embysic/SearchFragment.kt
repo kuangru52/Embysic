@@ -39,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.launch
@@ -195,6 +197,36 @@ class SearchFragment : Fragment() {
                 }
             }
         }
+    }
+
+    private val playerListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            updatePlaybackState(mediaItem)
+        }
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
+        }
+    }
+
+    private fun updatePlaybackState(mediaItem: MediaItem?) {
+        val extras = mediaItem?.mediaMetadata?.extras
+        val albumId = extras?.getString("album_id")
+        val path = extras?.getString("path")
+        adapter.setCurrentMediaId(mediaItem?.mediaId, albumId, path)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val controller = (activity as? HomeActivity)?.mediaController
+        controller?.let { 
+            it.addListener(playerListener)
+            updatePlaybackState(it.currentMediaItem)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
     }
 
     private fun setupRecyclerView() {

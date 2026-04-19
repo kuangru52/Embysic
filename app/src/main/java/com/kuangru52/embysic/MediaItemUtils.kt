@@ -44,6 +44,8 @@ object MediaItemUtils {
 
         val extras = Bundle().apply {
             putString("item_id", song.Id)
+            putString("album_id", song.AlbumId)
+            putString("path", song.Path)
             putString("media_source_id", mediaSourceId)
             putString("play_session_id", sessionId)
             putLong("duration_ms", durationMs)

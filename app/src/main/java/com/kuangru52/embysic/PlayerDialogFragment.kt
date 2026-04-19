@@ -268,6 +268,25 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         rvLyrics.layoutManager = LinearLayoutManager(context)
         rvLyrics.adapter = lyricsAdapter
 
+        tvTitle.setOnClickListener {
+            val currentItem = player?.currentMediaItem ?: return@setOnClickListener
+            val itemId = currentItem.mediaId
+            val path = currentItem.mediaMetadata.extras?.getString("path")
+            
+            if (itemId != null) {
+                dismiss()
+                (activity as? HomeActivity)?.let { home ->
+                    val fragment = LibraryFragment().apply {
+                        arguments = Bundle().apply {
+                            putString("target_item_id", itemId)
+                            putString("target_path", path)
+                        }
+                    }
+                    home.replaceFragment(fragment, "Library")
+                }
+            }
+        }
+
         btnPlayPause.setOnClickListener {
             player?.let { if (it.isPlaying) it.pause() else it.play() }
         }
@@ -585,13 +604,34 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             val query = if (artist.isNullOrBlank() || artist == "未知歌手") cleanedTitle else "$cleanedTitle $artist"
             if (query.isEmpty()) return@launch
             try {
-                // 1. 搜索歌曲，获取 songId
-                val searchResponse = neteaseApi.searchSong(query)
-                val song = searchResponse.result?.songs?.firstOrNull() ?: return@launch
+                // 1. 搜索歌曲，获取多个候选结果进行比对
+                val searchResponse = neteaseApi.searchSong(query, limit = 10)
+                val songs = searchResponse.result?.songs ?: return@launch
                 
+                // 找到最匹配的歌曲
+                val targetTitle = cleanedTitle.lowercase()
+                val targetArtist = artist?.lowercase()?.replace("未知歌手", "") ?: ""
+                
+                val bestMatch = songs.maxByOrNull { s ->
+                    var score = 0
+                    val sTitle = s.name?.lowercase() ?: ""
+                    val sArtist = s.artists?.firstOrNull()?.name?.lowercase() ?: ""
+                    
+                    // 标题完全匹配给高分
+                    if (sTitle == targetTitle) score += 50
+                    else if (sTitle.contains(targetTitle) || targetTitle.contains(sTitle)) score += 20
+                    
+                    // 歌手匹配给极高分
+                    if (targetArtist.isNotEmpty()) {
+                        if (sArtist == targetArtist) score += 100
+                        else if (sArtist.contains(targetArtist) || targetArtist.contains(sArtist)) score += 40
+                    }
+                    
+                    score
+                } ?: return@launch
+
                 // 2. 使用新版 v3 详情接口获取封面
-                // 这里的 ids 参数需要格式化为 [{"id":songId}]
-                val detailResponse = neteaseApi.getSongDetail("[{\"id\":${song.id}}]")
+                val detailResponse = neteaseApi.getSongDetail("[{\"id\":${bestMatch.id}}]")
                 val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
                 
                 if (!picUrl.isNullOrEmpty()) {

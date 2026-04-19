@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -224,6 +227,8 @@ class MainActivity : AppCompatActivity() {
         placeholder: String,
         isPassword: Boolean
     ) {
+        var passwordVisible by remember { mutableStateOf(false) }
+        
         TextField(
             value = value,
             onValueChange = onValueChange,
@@ -235,7 +240,20 @@ class MainActivity : AppCompatActivity() {
                     color = ComposeColor.Black.copy(alpha = 0.4f)
                 ) 
             },
-            visualTransformation = if (isPassword) PasswordVisualTransformation() else VisualTransformation.None,
+            visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,
+            trailingIcon = if (isPassword) {
+                {
+                    val image = if (passwordVisible)
+                        Icons.Filled.Visibility
+                    else Icons.Filled.VisibilityOff
+
+                    val description = if (passwordVisible) "隐藏密码" else "显示密码"
+
+                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                        Icon(imageVector = image, contentDescription = description, tint = ComposeColor.Black.copy(alpha = 0.4f))
+                    }
+                }
+            } else null,
             colors = TextFieldDefaults.colors(
                 focusedContainerColor = ComposeColor.Transparent,
                 unfocusedContainerColor = ComposeColor.Transparent,
@@ -265,7 +283,10 @@ class MainActivity : AppCompatActivity() {
 
                     val requestBody = json.toString().toRequestBody("application/json".toMediaType())
 
-                    val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"${BuildConfig.VERSION_NAME}\""
+                    val authHeader = "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"${BuildConfig.VERSION_NAME}\""
+                    Log.d("EmbyLogin", "Auth Header: $authHeader")
+                    Log.d("EmbyLogin", "URL: $url")
+                    Log.d("EmbyLogin", "Body: ${json.toString()}")
 
                     val request = Request.Builder()
                         .url(url)
@@ -274,11 +295,20 @@ class MainActivity : AppCompatActivity() {
                         .build()
 
                     val response = client.newCall(request).execute()
+                    val responseCode = response.code
+                    val responseMessage = response.message
+                    val responseBody = response.body?.string()
+                    
                     if (response.isSuccessful) {
-                        val body = response.body?.string()
-                        Pair(true, body)
+                        Pair(true, responseBody)
                     } else {
-                        Pair(false, response.message)
+                        Log.e("EmbyLogin", "HTTP Error: $responseCode $responseMessage - $responseBody")
+                        val displayError = if (!responseBody.isNullOrBlank()) {
+                            responseBody // 使用服务器返回的具体错误信息，例如“账户被锁定”
+                        } else {
+                            "错误码: $responseCode $responseMessage"
+                        }
+                        Pair(false, displayError)
                     }
                 }
 

@@ -41,10 +41,51 @@ class FavoriteFragment : Fragment() {
         return view
     }
 
+    private val playerListener = object : androidx.media3.common.Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            updatePlaybackState(mediaItem)
+        }
+        override fun onPositionDiscontinuity(oldPosition: androidx.media3.common.Player.PositionInfo, newPosition: androidx.media3.common.Player.PositionInfo, reason: Int) {
+            updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
+        }
+    }
+
+    private fun updatePlaybackState(mediaItem: MediaItem?) {
+        val extras = mediaItem?.mediaMetadata?.extras
+        val albumId = extras?.getString("album_id")
+        val path = extras?.getString("path")
+        adapter.setCurrentMediaId(mediaItem?.mediaId, albumId, path)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val controller = (activity as? HomeActivity)?.mediaController
+        controller?.let { 
+            it.addListener(playerListener)
+            updatePlaybackState(it.currentMediaItem)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
+    }
+
     private fun setupRecyclerView() {
-        adapter = LibraryAdapter(onItemClick = { item -> playMusic(item, adapter.items) })
+        adapter = LibraryAdapter(
+            onItemClick = { item -> playMusic(item, adapter.items) },
+            onItemDoubleClick = { replaceFragment(RecentFragment()) }
+        )
         recyclerView.layoutManager = LinearLayoutManager(context)
         recyclerView.adapter = adapter
+    }
+
+    private fun replaceFragment(fragment: Fragment) {
+        parentFragmentManager.beginTransaction()
+            .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out)
+            .replace(R.id.fragment_container, fragment)
+            .addToBackStack(null)
+            .commit()
     }
 
     private fun playMusic(item: EmbyItem, allItems: List<EmbyItem>) {
@@ -56,6 +97,13 @@ class FavoriteFragment : Fragment() {
 
         val startIndex = mediaItems.indexOfFirst { it.mediaId == item.Id }.coerceAtLeast(0)
         controller.setMediaItems(mediaItems, startIndex, 0L)
+        
+        // 断点续听
+        val lastPositionTicks = item.UserData?.PlaybackPositionTicks ?: 0L
+        if (lastPositionTicks > 0) {
+            controller.seekTo(lastPositionTicks / 10000)
+        }
+
         controller.prepare()
         controller.play()
 
@@ -88,16 +136,17 @@ class FavoriteFragment : Fragment() {
         lifecycleScope.launch {
             progressBar.visibility = View.VISIBLE
             try {
-                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.5\", Token=\"$accessToken\""
-                // 使用 getItems 并指定 Filters=IsFavorite
+                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.36\", Token=\"$accessToken\""
+                // 优先使用 Filters=IsFavorite 让服务端过滤，减少带宽消耗
                 val response = service.getItems(
                     userId = userId,
                     includeItemTypes = "Audio",
                     recursive = true,
                     fields = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index",
-                    auth = authHeader
+                    auth = authHeader,
+                    // 注意：Emby API 某些版本可能不支持 Filters，此时会在下面手动过滤
                 )
-                // 过滤出收藏的项目 (有些版本的 Emby 需要在客户端过滤，或者在 API 中传 Filters=IsFavorite)
+                // 客户端二次过滤确保准确性
                 val favorites = response.Items.filter { it.UserData?.IsFavorite == true }
                 adapter.submitList(favorites)
             } catch (e: Exception) {

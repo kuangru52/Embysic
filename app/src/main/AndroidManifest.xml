@@ -42,6 +42,7 @@
 
         <activity
             android:name=".HomeActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout"
             android:exported="false" />
 
         <activity

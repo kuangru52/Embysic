@@ -253,6 +253,7 @@ data class EmbyItem(
     val RunTimeTicks: Long? = null,
     val IndexNumber: Int? = null,
     val ParentIndexNumber: Int? = null,
+    val ParentId: String? = null,
     val FileName: String? = null,
     val Filename: String? = null,
     val SortName: String? = null

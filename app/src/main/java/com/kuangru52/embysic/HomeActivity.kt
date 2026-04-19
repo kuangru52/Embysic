@@ -1,96 +1,67 @@
 package com.kuangru52.embysic
 
 import android.content.Intent
+import android.content.res.Configuration
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.ComposeView
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import android.util.TypedValue
+import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowCompat
 import androidx.fragment.app.Fragment
-import androidx.fragment.app.FragmentActivity
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
 import androidx.media3.session.MediaController
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
-class HomeActivity : FragmentActivity() {
-
+class HomeActivity : AppCompatActivity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
     var mediaController: MediaController? = null
+        private set
+
+    private var selectedTab by mutableStateOf("Recent")
+    private var lastBackTime: Long = 0
     private var apiService: EmbyApiService? = null
-    private val activityScope = CoroutineScope(Dispatchers.Main + Job())
-    private var lastBackTime = 0L
-    var selectedTab by mutableStateOf("Recent")
+    private val activityScope = CoroutineScope(Dispatchers.Main)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContentView(R.layout.activity_home)
 
-        initApiService()
-
-        // 统一处理系统栏缩进，确保状态栏不被遮挡
-        val root = findViewById<View>(R.id.main_root)
-        val fragmentContainer = findViewById<View>(R.id.fragment_container)
-        val bottomContainer = findViewById<View>(R.id.bottom_container)
-
-        ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main_root)) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            
-            // 重要：只给 fragmentContainer 设置顶部 padding，避开状态栏
-            fragmentContainer.setPadding(0, systemBars.top, 0, 0)
-            
-            // 底部避开导航栏
-            bottomContainer.setPadding(0, 0, 0, systemBars.bottom)
-
+            v.setPadding(systemBars.left, 0, systemBars.right, 0)
             insets
         }
 
-        val sessionToken = androidx.media3.session.SessionToken(this, android.content.ComponentName(this, com.kuangru52.embysic.PlaybackService::class.java))
-        controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
+        initApiService()
+
+        controllerFuture = MediaController.Builder(this, 
+            androidx.media3.session.SessionToken(this, 
+                android.content.ComponentName(this, PlaybackService::class.java))).buildAsync()
+
         controllerFuture?.addListener({
-            mediaController = controllerFuture?.get()
-            mediaController?.let { controller ->
+            val controller = controllerFuture?.get()
+            if (controller != null) {
+                mediaController = controller
                 setupController(controller)
+                
                 findViewById<ComposeView>(R.id.bottom_container).setContent {
                     BottomTabs(
                         controller = controller,
@@ -126,6 +97,26 @@ class HomeActivity : FragmentActivity() {
                         }
                     )
                 }
+
+                // 核心：实现真正的物理折射
+                // 直接将 RenderEffect 施加到 fragment_container，使其处理背景内容
+                findViewById<FrameLayout>(R.id.fragment_container).let { container ->
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        container.post {
+                            val bottomOffsetPx = TypedValue.applyDimension(
+                                TypedValue.COMPLEX_UNIT_DIP, 180f, resources.displayMetrics
+                            )
+                            val effect = LiquidGlassFactory.createLiquidRenderEffect(
+                                width = container.width.toFloat(),
+                                height = container.height.toFloat(),
+                                refraction = 0.5f, // 折射率
+                                aberration = 4.0f, // 色散强度
+                                bottomOffset = bottomOffsetPx
+                            )
+                            container.setRenderEffect(effect)
+                        }
+                    }
+                }
             }
         }, MoreExecutors.directExecutor())
 
@@ -137,19 +128,15 @@ class HomeActivity : FragmentActivity() {
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                // 如果 Fragment 回退栈中有内容，先回退 Fragment
                 if (supportFragmentManager.backStackEntryCount > 0) {
                     supportFragmentManager.popBackStack()
                     return
                 }
-
-                // 如果当前是在搜索页，返回到曲库 (Library)
                 if (selectedTab == "Search") {
                     selectedTab = "Library"
                     replaceFragment(LibraryFragment())
                     return
                 }
-
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - lastBackTime < 2000) {
                     finish()
@@ -171,10 +158,6 @@ class HomeActivity : FragmentActivity() {
             showPlayer()
         }
     }
-
-
-
-
 
     private fun initApiService() {
         val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
@@ -231,15 +214,12 @@ class HomeActivity : FragmentActivity() {
 
     fun replaceFragment(fragment: Fragment, tag: String? = null) {
         val transaction = supportFragmentManager.beginTransaction()
-        
-        // 设置进场和出场动画：进场时从右侧滑入，出场时向右侧滑出
         transaction.setCustomAnimations(
-            R.anim.ios_slide_in_right,  // 进入动画
-            android.R.anim.fade_out,    // 被覆盖时的动画（保持不动或轻微淡出）
-            android.R.anim.fade_in,      // 返回时的进场（下面的卡片显现）
-            R.anim.ios_slide_out_right   // 返回时的出场（当前的卡片向右滑走）
+            R.anim.ios_slide_in_right,
+            android.R.anim.fade_out,
+            android.R.anim.fade_in,
+            R.anim.ios_slide_out_right
         )
-        
         transaction.replace(R.id.fragment_container, fragment)
         if (tag != null) transaction.addToBackStack(tag)
         transaction.commit()

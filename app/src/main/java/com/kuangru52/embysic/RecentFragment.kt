@@ -1,17 +1,15 @@
 package com.kuangru52.embysic
 
-import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ProgressBar
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.launch
@@ -40,6 +38,36 @@ class RecentFragment : Fragment() {
         loadRecentItems()
         
         return view
+    }
+
+    private val playerListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            updatePlaybackState(mediaItem)
+        }
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
+        }
+    }
+
+    private fun updatePlaybackState(mediaItem: MediaItem?) {
+        val extras = mediaItem?.mediaMetadata?.extras
+        val albumId = extras?.getString("album_id")
+        val path = extras?.getString("path")
+        adapter.setCurrentMediaId(mediaItem?.mediaId, albumId, path)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val controller = (activity as? HomeActivity)?.mediaController
+        controller?.let { 
+            it.addListener(playerListener)
+            updatePlaybackState(it.currentMediaItem)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
     }
 
     private fun setupRecyclerView() {
@@ -104,14 +132,12 @@ class RecentFragment : Fragment() {
         lifecycleScope.launch {
             progressBar.visibility = View.VISIBLE
             try {
-                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.5\", Token=\"$accessToken\""
+                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.36\", Token=\"$accessToken\""
                 // 改为调用 getRecentlyPlayedItems 获取真正的最近播放列表
                 val response = service.getRecentlyPlayedItems(userId, auth = authHeader)
                 adapter.submitList(response.Items)
             } catch (e: Exception) {
-                if (e !is kotlinx.coroutines.CancellationException) {
-                    Toast.makeText(context, "加载失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
+                // 静默处理加载失败，避免在网络抖动或快速切换时弹出大量 Toast
             } finally {
                 progressBar.visibility = View.GONE
             }

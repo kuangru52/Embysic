@@ -71,30 +71,12 @@ fun BottomTabs(
     val contentColor = if (isDark) Color.White else MaterialTheme.colorScheme.onSurface
     val subTextColor = if (isDark) Color.White.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurfaceVariant
 
-    Surface(
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 16.dp) // 增加外边距，使其更像悬浮 Dock
+            .padding(horizontal = 20.dp, vertical = 16.dp)
             .navigationBarsPadding()
-            // 玻璃质感的关键：更细的高光边框，匹配大 R 角
-            .border(
-                width = 0.6.dp,
-                brush = Brush.verticalGradient(
-                    colors = if (isDark) {
-                        listOf(Color.White.copy(alpha = 0.12f), Color.Transparent)
-                    } else {
-                        listOf(Color.White.copy(alpha = 0.6f), Color.White.copy(alpha = 0.2f))
-                    }
-                ),
-                shape = RoundedCornerShape(32.dp) // 增加到 32dp，匹配小米大 R 角视觉
-            ),
-        shape = RoundedCornerShape(32.dp),
-        color = if (isDark) {
-            Color(0xFF1A1A1A).copy(alpha = 0.75f) // 深色稍微调亮一点，增加通透感
-        } else {
-            Color.White.copy(alpha = 0.8f)
-        },
-        tonalElevation = 0.dp
+            .glassContainer(isDark) // 使用新打磨的玻璃装饰器，包含高光边框
     ) {
         Column {
             // 进度条

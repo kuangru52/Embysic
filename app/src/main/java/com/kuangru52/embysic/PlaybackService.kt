@@ -17,6 +17,7 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
@@ -74,8 +75,13 @@ class PlaybackService : MediaSessionService() {
         
         val accessToken = getSharedPreferences("embysic_prefs", MODE_PRIVATE).getString("access_token", "") ?: ""
         
-        // 1. 构建支持缓存的数据源
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        // 1. 构建支持缓存的数据源 (切换到 OkHttp 以获得更好的移动网络稳定性)
+        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
+            okhttp3.OkHttpClient.Builder()
+                .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+        )
             .setUserAgent("Embysic/1.12")
             .setDefaultRequestProperties(mapOf("X-Emby-Token" to accessToken))
 
@@ -84,10 +90,23 @@ class PlaybackService : MediaSessionService() {
             .setUpstreamDataSourceFactory(httpDataSourceFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-        // 2. 初始化 ExoPlayer 并设置缓存工厂
+        // 2. 自定义缓冲策略：让它更积极地预加载，应对不主动缓存的问题
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                50000,  // minBufferMs: 提高到 50s。只要不满 50s，播放器就会一直尝试下载
+                120000, // maxBufferMs: 最大缓存 120s
+                2500,   // bufferForPlaybackMs: 2.5s 即可起播
+                5000    // bufferForPlaybackAfterRebufferMs: 5s
+            )
+            .setBackBuffer(30000, true) // 增加 30s 后退缓冲区
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
+        // 3. 初始化 ExoPlayer
         val exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(cacheDataSourceFactory))
+            .setLoadControl(loadControl)
             .build()
 
         exoPlayer.addListener(object : Player.Listener {
@@ -196,6 +215,29 @@ class PlaybackService : MediaSessionService() {
                 )
             )
             .setCallback(object : MediaSession.Callback {
+                override fun onPlaybackResumption(
+                    session: MediaSession,
+                    controller: MediaSession.ControllerInfo
+                ): com.google.common.util.concurrent.ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+                    // 恢复播放上一次的项目和位置
+                    val player = session.player
+                    val mediaItem = player.currentMediaItem
+                    val startPositionMs = player.currentPosition
+                    
+                    val result = if (mediaItem != null) {
+                        MediaSession.MediaItemsWithStartPosition(
+                            listOf(mediaItem),
+                            player.currentMediaItemIndex,
+                            startPositionMs
+                        )
+                    } else {
+                        // 如果当前没有项目，返回空（或由 App 逻辑决定加载什么）
+                        MediaSession.MediaItemsWithStartPosition(listOf(), 0, 0L)
+                    }
+                    
+                    return com.google.common.util.concurrent.Futures.immediateFuture(result)
+                }
+
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
                     // 彻底放开所有权限，包括 Seek (Command 5)
                     val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()

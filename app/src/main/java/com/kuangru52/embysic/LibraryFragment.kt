@@ -12,6 +12,8 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -28,7 +30,7 @@ class LibraryFragment : Fragment() {
     private var userId = ""
     
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.5\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.36\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_library, container, false)
@@ -42,10 +44,14 @@ class LibraryFragment : Fragment() {
         val swipeBackLayout = view.findViewById<SwipeBackLayout>(R.id.swipeBackLayout)
         val artistId = arguments?.getString("artist_id")
         val artistName = arguments?.getString("artist_name")
+        val targetItemId = arguments?.getString("target_item_id")
 
         (activity as? HomeActivity)?.findViewById<View>(R.id.bottom_container)?.visibility = View.VISIBLE
 
-        if (artistId != null) {
+        if (targetItemId != null) {
+            // 如果是从播放页跳转来的，先获取该歌曲的父级 ID
+            locateAndLoadParent(targetItemId)
+        } else if (artistId != null) {
             val fragments = parentFragmentManager.fragments
             if (fragments.size >= 2) {
                 val prevFragment = fragments[fragments.size - 2]
@@ -60,6 +66,58 @@ class LibraryFragment : Fragment() {
         }
 
         return view
+    }
+
+    private fun locateAndLoadParent(itemId: String) {
+        val service = apiService ?: return
+        lifecycleScope.launch {
+            progressBar.visibility = View.VISIBLE
+            try {
+                // 1. 获取歌曲详情以拿到 ParentId
+                val item = service.getItem(userId, itemId, authHeader)
+                val parentId = item.ParentId
+                if (parentId != null) {
+                    // 2. 加载父文件夹内容
+                    loadItems(parentId, "所在目录")
+                } else {
+                    loadItems(null, "音乐库")
+                }
+            } catch (e: Exception) {
+                loadItems(null, "音乐库")
+            } finally {
+                progressBar.visibility = View.GONE
+            }
+        }
+    }
+
+    private val playerListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            updatePlaybackState(mediaItem)
+        }
+        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
+        }
+    }
+
+    private fun updatePlaybackState(mediaItem: MediaItem?) {
+        val extras = mediaItem?.mediaMetadata?.extras
+        val albumId = extras?.getString("album_id")
+        val path = extras?.getString("path")
+        adapter.setCurrentMediaId(mediaItem?.mediaId, albumId, path)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val controller = (activity as? HomeActivity)?.mediaController
+        controller?.let { 
+            it.addListener(playerListener)
+            updatePlaybackState(it.currentMediaItem)
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
     }
 
     private fun setupRecyclerView() {

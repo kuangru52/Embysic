@@ -72,7 +72,7 @@ object MediaItemUtils {
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(song.Name)
-                    .setArtist(song.Artists?.firstOrNull() ?: "未知艺术家")
+                    .setArtist(song.Artists?.joinToString(", ") ?: "未知艺术家")
                     .setArtworkUri(Uri.parse(artworkUrl))
                     .setExtras(extras)
                     .build()

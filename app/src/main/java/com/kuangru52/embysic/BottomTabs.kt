@@ -3,6 +3,7 @@ package com.kuangru52.embysic
 import android.widget.Toast
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -145,7 +146,13 @@ fun BottomTabs(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, color = contentColor)
                     if (artist.isNotEmpty()) {
-                        Text(text = artist, fontSize = 13.sp, color = subTextColor, maxLines = 1)
+                        Text(
+                            text = artist,
+                            fontSize = 13.sp,
+                            color = subTextColor,
+                            maxLines = 1,
+                            modifier = Modifier.basicMarquee()
+                        )
                     }
                 }
 

@@ -107,7 +107,7 @@
 
                 <TextView
                     android:id="@+id/tvFullTitle"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Song Title"
                     android:textColor="@android:color/white"
@@ -117,12 +117,12 @@
                     android:shadowRadius="4"
                     android:textSize="26sp"
                     android:textStyle="bold"
-                    android:ellipsize="marquee"
-                    android:singleLine="true" />
+                    android:maxLines="2"
+                    android:ellipsize="end" />
 
                 <TextView
                     android:id="@+id/tvFullArtist"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="4dp"
                     android:text="Artist Name"

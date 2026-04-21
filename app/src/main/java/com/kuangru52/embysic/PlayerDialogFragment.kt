@@ -497,6 +497,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         mediaItem.mediaMetadata.let {
             tvTitle.text = it.title
             tvArtist.text = it.artist
+            tvArtist.isSelected = true // 激活跑马灯滚动
             val artworkUri = it.artworkUri
             
             val extras = it.extras

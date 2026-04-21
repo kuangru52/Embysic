@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.View
 import android.util.TypedValue
+import android.graphics.RectF
 import android.widget.FrameLayout
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
@@ -44,9 +45,13 @@ class HomeActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContentView(R.layout.activity_home)
 
+        val fragmentContainer = findViewById<FrameLayout>(R.id.fragment_container)
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main_root)) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            // 保持根布局全屏，处理左右边距
             v.setPadding(systemBars.left, 0, systemBars.right, 0)
+            // 将内容向下推，避开状态栏，但背景图会依然延伸到上方
+            fragmentContainer.setPadding(0, systemBars.top, 0, 0)
             insets
         }
 
@@ -98,20 +103,47 @@ class HomeActivity : AppCompatActivity() {
                     )
                 }
 
-                // 核心：实现真正的物理折射
-                // 直接将 RenderEffect 施加到 fragment_container，使其处理背景内容
+                // 核心：实现真正的物理折射。折射效果作用于底层的 fragment_container，而底栏 UI 悬浮其上
                 findViewById<FrameLayout>(R.id.fragment_container).let { container ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        container.post {
-                            val bottomOffsetPx = TypedValue.applyDimension(
-                                TypedValue.COMPLEX_UNIT_DIP, 180f, resources.displayMetrics
+                        val bottomView = findViewById<View>(R.id.bottom_container)
+                        
+                        bottomView.viewTreeObserver.addOnGlobalLayoutListener {
+                            val dm = resources.displayMetrics
+                            val px20dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
+                            val px16dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, dm)
+                            val px30dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 30f, dm)
+                            val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
+                            val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
+                            val px4dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, dm)
+
+                            val containerLocation = IntArray(2)
+                            container.getLocationOnScreen(containerLocation)
+                            val bottomLocation = IntArray(2)
+                            bottomView.getLocationOnScreen(bottomLocation)
+                            
+                            val relativeTop = (bottomLocation[1] - containerLocation[1]).toFloat()
+                            
+                            // 精确计算底栏玻璃板的 Rect（一体化 30dp 圆角区域）
+                            val glassRect = RectF(
+                                px20dp,
+                                relativeTop + px16dp,
+                                container.width.toFloat() - px20dp,
+                                relativeTop + bottomView.height.toFloat() - px16dp
                             )
+
+                            val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+                            // 应用参数：折射量 -60dp, 折射高度 20dp, 模糊半径 4dp
                             val effect = LiquidGlassFactory.createLiquidRenderEffect(
                                 width = container.width.toFloat(),
                                 height = container.height.toFloat(),
-                                refraction = 0.5f, // 折射率
-                                aberration = 4.0f, // 色散强度
-                                bottomOffset = bottomOffsetPx
+                                rect = glassRect,
+                                radius = px30dp,
+                                refractionAmount = pxNeg60dp, 
+                                refractionHeight = px20dpRefHeight,
+                                blurRadius = px4dpBlurRadius,
+                                isDark = isDark
                             )
                             container.setRenderEffect(effect)
                         }

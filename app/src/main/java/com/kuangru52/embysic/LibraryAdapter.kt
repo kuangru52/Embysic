@@ -35,7 +35,7 @@ class LibraryAdapter(
     private var currentAlbumId: String? = null
     private var currentPlayingPath: String? = null
 
-    // 缓存颜色和偏好设置，避免在 bind 中重复读取
+    // 缓存颜色和偏好设置，避免 in bind 中重复读取
     private var primaryColor: Int = 0
     private var secondaryColor: Int = 0
     private val highlightColor = android.graphics.Color.parseColor("#FFA000")
@@ -52,6 +52,15 @@ class LibraryAdapter(
             0f,   0f,   1.0f, 0f, 0f, // R'
             0.2f, 0.2f, 0.6f, 0f, 0f, // G'
             0.5f, 0.5f, 0f,   0f, 0f, // B'
+            0f,   0f,   0f,   1f, 0f  // A'
+        ))
+    )
+
+    private val parentFolderMatrix = android.graphics.ColorMatrixColorFilter(
+        android.graphics.ColorMatrix(floatArrayOf(
+            0.8f, 0f,   0f,   0f, 0f, // R' (带点微红/橙，区分母文件夹)
+            0f,   0.6f, 0f,   0f, 0f, // G'
+            0f,   0f,   0.2f, 0f, 0f, // B'
             0f,   0f,   0f,   1f, 0f  // A'
         ))
     )
@@ -129,50 +138,71 @@ class LibraryAdapter(
         private val tvName: TextView = view.findViewById(R.id.tvName)
         private val tvArtist: TextView = view.findViewById(R.id.tvArtist)
         private val tvIndex: TextView = view.findViewById(R.id.tvIndex)
+        private val itemContainer: View = view.findViewById(R.id.itemContainer)
 
         fun bind(item: EmbyItem) {
             tvName.text = item.Name
+            val isParentFolder = item.Id == "BACK_FOLDER"
             
             // 彻底清除状态
             ivIcon.dispose() 
             ivIcon.clearColorFilter()
             ImageViewCompat.setImageTintList(ivIcon, null)
 
-            val isFolderLike = item.IsFolder || item.Type == "CollectionFolder" || item.Type == "MusicArtist" || item.Type == "MusicAlbum"
+            val isFolderLike = item.IsFolder || item.Type == "CollectionFolder" || item.Type == "MusicArtist" || item.Type == "MusicAlbum" || isParentFolder
             val isPlayingThis = item.Id == currentMediaId
             
             var isCurrentAlbumOrParent = false
             if (isFolderLike && currentPlayingPath != null && item.Path != null) {
-                // 仅在路径包含时进行简单判定，减少正则/替换开销
                 isCurrentAlbumOrParent = currentPlayingPath!!.contains(item.Path!!)
             }
 
-            if (isPlayingThis) {
-                tvIndex.visibility = View.VISIBLE
-                tvIndex.background = null
-                tvIndex.text = if (item.IndexNumber != null) String.format("%02d", item.IndexNumber) else ""
-                tvIndex.setTextColor(highlightColor)
-                tvName.setTextColor(highlightColor)
-                tvArtist.setTextColor(highlightColor)
-            } else if (isCurrentAlbumOrParent) {
-                tvIndex.visibility = View.GONE 
-                tvName.setTextColor(highlightColor)
-                tvArtist.setTextColor(highlightColor)
-                ivIcon.colorFilter = folderHighlightMatrix
-            } else if (isFolderLike) {
+            if (isParentFolder) {
+                itemContainer.setBackgroundResource(R.drawable.bg_parent_folder_card)
                 tvIndex.visibility = View.GONE
-                tvName.setTextColor(primaryColor)
-                tvArtist.setTextColor(secondaryColor)
+                tvName.setTextColor(secondaryColor)
+                tvName.text = item.Name
+                tvArtist.visibility = View.GONE
+                ivIcon.colorFilter = parentFolderMatrix
+                
+                // 彻底禁用点击
+                itemView.isClickable = false
+                itemView.isFocusable = false
+                itemView.foreground = null
             } else {
-                tvIndex.visibility = View.VISIBLE
-                tvIndex.background = null
-                tvIndex.text = if (item.IndexNumber != null) String.format("%02d", item.IndexNumber) else ""
-                tvIndex.setTextColor(secondaryColor)
-                tvName.setTextColor(primaryColor)
-                tvArtist.setTextColor(secondaryColor)
+                itemContainer.setBackgroundResource(R.drawable.bg_compact_card)
+                // 恢复普通项的点击属性
+                itemView.isClickable = true
+                itemView.isFocusable = true
+                
+                if (isPlayingThis) {
+                    tvIndex.visibility = View.VISIBLE
+                    tvIndex.background = null
+                    tvIndex.text = if (item.IndexNumber != null) String.format("%02d", item.IndexNumber) else ""
+                    tvIndex.setTextColor(highlightColor)
+                    tvName.setTextColor(highlightColor)
+                    tvArtist.setTextColor(highlightColor)
+                } else if (isCurrentAlbumOrParent) {
+                    tvIndex.visibility = View.GONE 
+                    tvName.setTextColor(highlightColor)
+                    tvArtist.setTextColor(highlightColor)
+                    ivIcon.colorFilter = folderHighlightMatrix
+                } else if (isFolderLike) {
+                    tvIndex.visibility = View.GONE
+                    tvName.setTextColor(primaryColor)
+                    tvArtist.setTextColor(secondaryColor)
+                } else {
+                    tvIndex.visibility = View.VISIBLE
+                    tvIndex.background = null
+                    tvIndex.text = if (item.IndexNumber != null) String.format("%02d", item.IndexNumber) else ""
+                    tvIndex.setTextColor(secondaryColor)
+                    tvName.setTextColor(primaryColor)
+                    tvArtist.setTextColor(secondaryColor)
+                }
             }
 
-            ivIcon.setBackgroundResource(R.drawable.rounded_corners_8)
+            // 移除背景设置，保持干干净净
+            ivIcon.background = null
             ivIcon.clipToOutline = true
 
             if (isFolderLike) {
@@ -180,9 +210,11 @@ class LibraryAdapter(
                 ivIcon.setImageResource(R.drawable.folder)
                 ivIcon.scaleType = ImageView.ScaleType.FIT_CENTER
                 
-                tvArtist.visibility = if (item.Type == "MusicAlbum") View.VISIBLE else View.GONE
-                if (item.Type == "MusicAlbum") {
-                    tvArtist.text = item.Artists?.joinToString(", ") ?: ""
+                if (!isParentFolder) {
+                    tvArtist.visibility = if (item.Type == "MusicAlbum") View.VISIBLE else View.GONE
+                    if (item.Type == "MusicAlbum") {
+                        tvArtist.text = item.Artists?.joinToString(", ") ?: ""
+                    }
                 }
             } else {
                 tvArtist.visibility = View.VISIBLE
@@ -209,8 +241,6 @@ class LibraryAdapter(
                         placeholder(R.drawable.cd)
                         error(R.drawable.cd)
                         listener(onError = { _, _ -> 
-                            // 修正：不再重试 serverImageUrl，因为已经在 load 中尝试过了。
-                            // 只有当 finalImageUrl 已经是 serverImageUrl 且失败时，才尝试解析内嵌封面。
                             if (finalImageUrl == serverImageUrl) {
                                 loadCoverFromTags(item, serverUrl, accessToken)
                             }
@@ -219,6 +249,7 @@ class LibraryAdapter(
                 }
             }
             itemView.setOnClickListener {
+                if (item.Id == "BACK_FOLDER") return@setOnClickListener
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - lastClickTime < 300) {
                     onItemDoubleClick?.invoke(item)

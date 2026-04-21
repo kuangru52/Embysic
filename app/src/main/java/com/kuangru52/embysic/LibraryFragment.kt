@@ -30,7 +30,7 @@ class LibraryFragment : Fragment() {
     private var userId = ""
     
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.36\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.39\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_library, container, false)
@@ -138,6 +138,7 @@ class LibraryFragment : Fragment() {
                 playMusic(item, adapter.items)
             }
         })
+        
         recyclerView.layoutManager = LinearLayoutManager(context)
         recyclerView.adapter = adapter
     }
@@ -190,7 +191,32 @@ class LibraryFragment : Fragment() {
                     }
                 }
                 val sortedItems = folders + music
-                adapter.submitList(sortedItems)
+                
+                // 增加“面包屑/母文件夹”功能
+                // 逻辑：只有当 parentId 存在，且 parentId 对应的不是“音乐库”根目录时显示
+                var showBackFolder = false
+                if (parentId != null) {
+                    val views = service.getUserViews(userId, authHeader)
+                    val musicLibrary = views.Items.find { it.CollectionType == "music" }
+                    // 如果当前 parentId 不是音乐库 ID，说明在子文件夹里
+                    if (musicLibrary != null && parentId != musicLibrary.Id) {
+                        showBackFolder = true
+                    }
+                }
+
+                val finalItems = if (showBackFolder) {
+                    val parentItem = EmbyItem(
+                        Id = "BACK_FOLDER",
+                        Name = title,
+                        Type = "Folder",
+                        IsFolder = true
+                    )
+                    listOf(parentItem) + sortedItems
+                } else {
+                    sortedItems
+                }
+                
+                adapter.submitList(finalItems)
             } catch (e: Exception) {
                 // 静默处理所有加载失败，避免切换过快产生的弹窗
             } finally {

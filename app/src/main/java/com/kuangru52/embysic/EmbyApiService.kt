@@ -21,7 +21,7 @@ interface EmbyApiService {
         @Query("SearchTerm") searchTerm: String? = null,
         @Query("IncludeItemTypes") includeItemTypes: String? = null,
         @Query("Recursive") recursive: Boolean = true,
-        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName,Filename,SortName",
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName,Filename,SortName,ChildCount,RecursiveItemCount",
         @Header("X-Emby-Authorization") auth: String,
         @Query("StartIndex") startIndex: Int? = null,
         @Query("Limit") limit: Int? = null,
@@ -256,7 +256,10 @@ data class EmbyItem(
     val ParentId: String? = null,
     val FileName: String? = null,
     val Filename: String? = null,
-    val SortName: String? = null
+    val SortName: String? = null,
+    val Album: String? = null,
+    val ChildCount: Int? = null,
+    val RecursiveItemCount: Int? = null
 )
 
 data class MediaSource(

@@ -132,7 +132,7 @@ class RecentFragment : Fragment() {
         lifecycleScope.launch {
             progressBar.visibility = View.VISIBLE
             try {
-                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.36\", Token=\"$accessToken\""
+                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.39\", Token=\"$accessToken\""
                 // 改为调用 getRecentlyPlayedItems 获取真正的最近播放列表
                 val response = service.getRecentlyPlayedItems(userId, auth = authHeader)
                 adapter.submitList(response.Items)

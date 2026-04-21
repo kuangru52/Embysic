@@ -30,7 +30,7 @@ class LibraryFragment : Fragment() {
     private var userId = ""
     
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.39\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.40\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_library, container, false)
@@ -169,13 +169,25 @@ class LibraryFragment : Fragment() {
                     )
                 }
 
-                // 为了完全匹配 Emby 服务器的文件夹排序，我们直接使用服务器返回的顺序：
-                // 1. 提取非音乐项（文件夹、专辑、歌手等），保持服务器原始排序（支持自然排序）。
-                // 2. 提取音乐项（Audio），并按碟片号 + 音轨号进行人工排序。
-                // 3. 最后将两者合并，确保文件夹在上方。
-                val allItems = response.Items
-                val folders = allItems.filter { it.Type != "Audio" && it.Name != "Artwork" }
-                val music = allItems.filter { it.Type == "Audio" }.sortedWith { a, b ->
+                // 1. 过滤：排除名为 "Artwork" 的文件夹
+                // 2. 增强过滤：如果是文件夹类型，则检查其是否有音乐或子文件夹，避免显示只有图片的空壳文件夹
+                val filteredItems = response.Items.filter { item ->
+                    if (item.Name == "Artwork") return@filter false
+                    
+                    // 如果是文件夹或专辑，检查其内容计数（Emby 返回的 RecursiveItemCount 或 ChildCount）
+                    if (item.IsFolder || item.Type == "MusicAlbum" || item.Type == "MusicArtist" || item.Type == "CollectionFolder") {
+                        // 如果有 RecursiveItemCount 且为 0，说明没有任何后代（包括音乐和子文件夹）
+                        val hasContent = (item.RecursiveItemCount ?: 1) > 0 || (item.ChildCount ?: 1) > 0
+                        hasContent
+                    } else {
+                        // 非文件夹（即 Audio 等）直接保留
+                        true
+                    }
+                }
+
+                // 排序逻辑：
+                val folders = filteredItems.filter { it.Type != "Audio" }
+                val music = filteredItems.filter { it.Type == "Audio" }.sortedWith { a, b ->
                     val discA = a.ParentIndexNumber ?: 1
                     val discB = b.ParentIndexNumber ?: 1
                     if (discA != discB) {

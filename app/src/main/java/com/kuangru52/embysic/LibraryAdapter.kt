@@ -138,11 +138,23 @@ class LibraryAdapter(
         private val tvName: TextView = view.findViewById(R.id.tvName)
         private val tvArtist: TextView = view.findViewById(R.id.tvArtist)
         private val tvIndex: TextView = view.findViewById(R.id.tvIndex)
+        private val tvDuration: TextView = view.findViewById(R.id.tvDuration)
         private val itemContainer: View = view.findViewById(R.id.itemContainer)
 
         fun bind(item: EmbyItem) {
             tvName.text = item.Name
             val isParentFolder = item.Id == "BACK_FOLDER"
+            
+            // 时长逻辑
+            if (!item.IsFolder && item.RunTimeTicks != null && item.RunTimeTicks!! > 0) {
+                val totalSeconds = item.RunTimeTicks!! / 10000000
+                val minutes = totalSeconds / 60
+                val seconds = totalSeconds % 60
+                tvDuration.text = String.format("%d:%02d", minutes, seconds)
+                tvDuration.visibility = View.VISIBLE
+            } else {
+                tvDuration.visibility = View.GONE
+            }
             
             // 彻底清除状态
             ivIcon.dispose() 
@@ -170,7 +182,13 @@ class LibraryAdapter(
                 itemView.isFocusable = false
                 itemView.foreground = null
             } else {
-                itemContainer.setBackgroundResource(R.drawable.bg_compact_card)
+                // 正在播放或所在文件夹/专辑，使用黄色淡化卡片+细边框
+                if (isPlayingThis || isCurrentAlbumOrParent) {
+                    itemContainer.setBackgroundResource(R.drawable.bg_playing_card)
+                } else {
+                    itemContainer.setBackgroundResource(R.drawable.bg_compact_card)
+                }
+
                 // 恢复普通项的点击属性
                 itemView.isClickable = true
                 itemView.isFocusable = true
@@ -209,18 +227,27 @@ class LibraryAdapter(
                 ivIcon.tag = "IS_FOLDER"
                 ivIcon.setImageResource(R.drawable.folder)
                 ivIcon.scaleType = ImageView.ScaleType.FIT_CENTER
+                // 文件夹不使用圆角背景，保持原样
+                ivIcon.background = null
                 
                 if (!isParentFolder) {
                     tvArtist.visibility = if (item.Type == "MusicAlbum") View.VISIBLE else View.GONE
                     if (item.Type == "MusicAlbum") {
-                        tvArtist.text = item.Artists?.joinToString(", ") ?: ""
+                        val artists = item.Artists?.joinToString(", ") ?: ""
+                        tvArtist.text = artists
                     }
                 }
             } else {
                 tvArtist.visibility = View.VISIBLE
-                tvArtist.text = item.Artists?.joinToString(", ") ?: ""
+                val artists = item.Artists?.joinToString(", ") ?: ""
+                val album = item.Album ?: ""
+                tvArtist.text = if (album.isNotEmpty()) "$artists    $album" else artists
                 ivIcon.tag = item.Id
                 ivIcon.scaleType = ImageView.ScaleType.CENTER_CROP
+                
+                // 音乐文件封面使用圆角矩形背景（12dp 圆角）
+                ivIcon.setBackgroundResource(R.drawable.bg_compact_card)
+                ivIcon.clipToOutline = true
 
                 val cachedBitmap = bitmapCache.get(item.Id)
                 if (cachedBitmap != null) {

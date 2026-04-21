@@ -136,7 +136,7 @@ class FavoriteFragment : Fragment() {
         lifecycleScope.launch {
             progressBar.visibility = View.VISIBLE
             try {
-                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.36\", Token=\"$accessToken\""
+                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.40\", Token=\"$accessToken\""
                 // 优先使用 Filters=IsFavorite 让服务端过滤，减少带宽消耗
                 val response = service.getItems(
                     userId = userId,

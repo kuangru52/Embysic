@@ -92,13 +92,14 @@ class MainActivity : AppCompatActivity() {
                 contentScale = ContentScale.Crop
             )
 
+            // 登录表单
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 占位，从 45% 高度开始
+                // 顶部占位，让表单出现在图片下方透明区域
                 Spacer(modifier = Modifier.fillMaxHeight(0.45f))
 
                 // 输入框容器 - 实现高斯模糊/毛玻璃效果
@@ -202,10 +203,10 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                // 版权信息
+                // 版权信息放在底部
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .weight(1f)
                         .padding(bottom = 24.dp),
                     contentAlignment = Alignment.BottomCenter
                 ) {

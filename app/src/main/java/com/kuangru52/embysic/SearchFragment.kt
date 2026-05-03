@@ -1,13 +1,18 @@
 package com.kuangru52.embysic
 
+import android.content.res.Configuration
+import android.graphics.RectF
 import android.os.Bundle
 import android.util.Log
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -59,7 +64,7 @@ class SearchFragment : Fragment() {
     private var userId = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.5\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val root = FrameLayout(requireContext()).apply {
@@ -230,24 +235,106 @@ class SearchFragment : Fragment() {
     }
 
     private fun setupRecyclerView() {
-        adapter = LibraryAdapter(onItemClick = { item ->
-            if (item.IsFolder) {
-                val fragment = LibraryFragment().apply {
-                    arguments = Bundle().apply {
-                        putString("artist_id", item.Id)
-                        putString("artist_name", item.Name)
+        adapter = LibraryAdapter(
+            onItemClick = { item ->
+                if (item.IsFolder) {
+                    val fragment = LibraryFragment().apply {
+                        arguments = Bundle().apply {
+                            putString("artist_id", item.Id)
+                            putString("artist_name", item.Name)
+                        }
                     }
+                    parentFragmentManager.beginTransaction()
+                        .setCustomAnimations(R.anim.ios_slide_in_right, 0, 0, 0)
+                        .add(R.id.fragment_container, fragment)
+                        .addToBackStack(null)
+                        .commit()
+                } else {
+                    playMusic(item, adapter.items)
                 }
-                parentFragmentManager.beginTransaction()
-                    .setCustomAnimations(R.anim.ios_slide_in_right, 0, 0, 0)
-                    .add(R.id.fragment_container, fragment)
-                    .addToBackStack(null)
-                    .commit()
-            } else {
-                playMusic(item, adapter.items)
-            }
-        })
+            },
+            onItemDelete = { item -> showDeleteConfirmation(item) }
+        )
         recyclerView.adapter = adapter
+    }
+
+    private fun showDeleteConfirmation(item: EmbyItem) {
+        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_custom_confirm, null)
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.Theme_Embysic_Dialog)
+            .setView(dialogView)
+            .create()
+
+        dialogView.findViewById<android.widget.TextView>(R.id.dialogTitle).text = "确认删除"
+        dialogView.findViewById<android.widget.TextView>(R.id.dialogMessage).text = "确定要永久删除 \"${item.Name}\" 吗？\n此操作不可撤销。"
+        
+        dialogView.findViewById<android.widget.TextView>(R.id.btnCancel).setOnClickListener {
+            dialog.dismiss()
+        }
+        
+        dialogView.findViewById<android.widget.TextView>(R.id.btnConfirm).setOnClickListener {
+            dialog.dismiss()
+            performDelete(item)
+        }
+
+        dialog.show()
+
+        val dm = resources.displayMetrics
+        val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
+        val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
+        val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
+        val px10dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, dm)
+
+        val width = (dm.widthPixels * 0.82).toInt()
+        dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            val container = (activity as? HomeActivity)?.findViewById<View>(R.id.fragment_container)
+            
+            dialogView.post {
+                val dialogLoc = IntArray(2)
+                dialogView.getLocationOnScreen(dialogLoc)
+                val containerLoc = IntArray(2)
+                container?.getLocationOnScreen(containerLoc)
+                
+                val relativeLeft = (dialogLoc[0] - containerLoc[0]).toFloat()
+                val relativeTop = (dialogLoc[1] - containerLoc[1]).toFloat()
+                
+                val dialogRect = RectF(
+                    relativeLeft,
+                    relativeTop,
+                    relativeLeft + dialogView.width,
+                    relativeTop + dialogView.height
+                )
+                
+                (activity as? HomeActivity)?.applyDialogEffect(dialogRect, px38dp, pxNeg60dp, px20dpRefHeight, px10dpBlurRadius)
+            }
+            
+            dialog.setOnDismissListener {
+                (activity as? HomeActivity)?.clearDialogEffect()
+            }
+        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            dialog.window?.attributes?.let {
+                it.blurBehindRadius = 64
+                dialog.window?.attributes = it
+            }
+        }
+    }
+
+    private fun performDelete(item: EmbyItem) {
+        val service = apiService ?: return
+        lifecycleScope.launch {
+            try {
+                service.deleteItem(item.Id, authHeader)
+                Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                // 搜索页删除后通常不需要全局刷新，只需从当前列表移除
+                val currentItems = adapter.items.toMutableList()
+                currentItems.removeAll { it.Id == item.Id }
+                adapter.submitList(currentItems)
+            } catch (e: Exception) {
+                Toast.makeText(context, "删除失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun performSearch(query: String) {

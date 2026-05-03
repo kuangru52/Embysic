@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android">
-    <solid android:color="#000000" /> <!-- 颜色不重要，主要用于定义 Outline 裁剪 -->
-    <corners android:radius="36dp" />
+    <!-- 基础背景色，在 LiquidGlass 渲染未生效或边缘处兜底 -->
+    <solid android:color="#1A110F" />
+    <corners android:radius="38dp" />
+    <!-- 0.5dp 细边框，保持 v1.45 设计语言统一 -->
+    <stroke android:width="0.5dp" android:color="@color/dialog_stroke" />
 </shape>

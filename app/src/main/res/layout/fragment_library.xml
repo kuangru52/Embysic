@@ -30,6 +30,44 @@
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toBottomOf="@id/search_bar_compose" />
 
+        <LinearLayout
+            android:id="@+id/selectionBar"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:background="?android:attr/windowBackground"
+            android:elevation="8dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="16dp"
+            android:visibility="gone"
+            app:layout_constraintBottom_toBottomOf="parent"
+            android:layout_marginBottom="180dp">
+
+            <TextView
+                android:id="@+id/btnCancelSelection"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="12dp"
+                android:text="@string/cancel"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="16sp" />
+
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/btnDeleteBatch"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="12dp"
+                android:text="@string/delete_selected"
+                android:textColor="#FF5252"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
         <ProgressBar
             android:id="@+id/progressBar"
             android:layout_width="wrap_content"

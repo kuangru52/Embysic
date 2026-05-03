@@ -1,0 +1,20 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- LiquidGlass: 16x16 Ring (Matches ic_repeat exactly) -->
+    <path
+        android:pathData="M9.75,4.35 A8,8 0 1 0 14.25,4.35"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+    <!-- Center Number 1: Stroked path for consistent thickness and perfect centering -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M12,14.8 V9.2 M10.5,10.7 L12,9.2" />
+</vector>

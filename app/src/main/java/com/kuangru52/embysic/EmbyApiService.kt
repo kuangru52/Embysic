@@ -21,7 +21,7 @@ interface EmbyApiService {
         @Query("SearchTerm") searchTerm: String? = null,
         @Query("IncludeItemTypes") includeItemTypes: String? = null,
         @Query("Recursive") recursive: Boolean = true,
-        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName,Filename,SortName,ChildCount,RecursiveItemCount",
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,Filename,SortName,ChildCount,RecursiveItemCount,ParentId,HasLyrics",
         @Header("X-Emby-Authorization") auth: String,
         @Query("StartIndex") startIndex: Int? = null,
         @Query("Limit") limit: Int? = null,
@@ -48,7 +48,7 @@ interface EmbyApiService {
         @Query("SearchTerm") searchTerm: String? = null,
         @Query("IncludeItemTypes") includeItemTypes: String? = null,
         @Query("Recursive") recursive: Boolean = true,
-        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName",
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,ParentId,HasLyrics",
         @Header("X-Emby-Authorization") auth: String
     ): com.google.gson.JsonElement
 
@@ -63,7 +63,7 @@ interface EmbyApiService {
         @Path("userId") userId: String,
         @Query("IncludeItemTypes") includeItemTypes: String = "Audio",
         @Query("Limit") limit: Int = 20,
-        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName",
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,ParentId,HasLyrics",
         @Header("X-Emby-Authorization") auth: String
     ): List<EmbyItem>
 
@@ -75,7 +75,7 @@ interface EmbyApiService {
         @Query("IncludeItemTypes") includeItemTypes: String = "Audio",
         @Query("Limit") limit: Int = 20,
         @Query("Recursive") recursive: Boolean = true,
-        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,Index,FileName",
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,ParentId,HasLyrics",
         @Header("X-Emby-Authorization") auth: String
     ): EmbyItemsResponse
 
@@ -121,7 +121,8 @@ interface EmbyApiService {
     @GET("emby/Items/{itemId}/Lyrics")
     suspend fun getLyrics(
         @Path("itemId") itemId: String,
-        @Header("X-Emby-Authorization") auth: String
+        @Header("X-Emby-Authorization") auth: String,
+        @Query("api_key") apiKey: String? = null
     ): LyricsResponse
 
     @GET("emby/Users/{userId}/Items/{itemId}")
@@ -163,9 +164,15 @@ interface EmbyApiService {
         @Query("ParentId") parentId: String,
         @Query("UserId") userId: String,
         @Header("X-Emby-Authorization") auth: String,
-        @Query("Fields") fields: String = "Path",
+        @Query("Fields") fields: String = "Path,ParentId",
         @Query("Recursive") recursive: Boolean = false
     ): EmbyItemsResponse
+
+    @DELETE("emby/Items/{itemId}")
+    suspend fun deleteItem(
+        @Path("itemId") itemId: String,
+        @Header("X-Emby-Authorization") auth: String
+    )
 
     @GET("emby/Items/{itemId}/Download")
     @Streaming
@@ -192,13 +199,13 @@ data class PlaybackProgressInfo(
 
 data class LyricsResponse(
     val Lines: List<LyricLine>? = null,
-    val Lyrics: List<LyricLine>? = null,
+    val Lyrics: com.google.gson.JsonElement? = null,
     val LyricLines: List<LyricLine>? = null
 )
 
 data class LyricLine(
-    val Text: String,
-    val Start: Long? = null,
+    val Text: String? = null,
+    val Start: Double? = null,
     val StartTicks: Long? = null
 )
 
@@ -259,7 +266,15 @@ data class EmbyItem(
     val SortName: String? = null,
     val Album: String? = null,
     val ChildCount: Int? = null,
-    val RecursiveItemCount: Int? = null
+    val RecursiveItemCount: Int? = null,
+    val HasLyrics: Boolean? = null,
+    val ArtistItems: List<ArtistItem>? = null,
+    val AlbumArtists: List<ArtistItem>? = null
+)
+
+data class ArtistItem(
+    val Name: String?,
+    val Id: String?
 )
 
 data class MediaSource(

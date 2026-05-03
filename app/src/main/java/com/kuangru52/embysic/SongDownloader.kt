@@ -26,6 +26,14 @@ object SongDownloader {
 
     fun getProgress(itemId: String): Int = progressMap[itemId] ?: 0
 
+    fun isDownloaded(itemId: String, context: Context? = null): Boolean {
+        if (progressMap[itemId] == 100) return true
+        if (context == null) return false
+        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return false
+        val file = File(dir, "$itemId.aac")
+        return file.exists() && file.length() > 0
+    }
+
     /**
      * 将歌曲下载到应用的私有下载目录 (转码为 AAC)
      */

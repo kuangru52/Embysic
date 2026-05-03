@@ -30,4 +30,8 @@
     <string name="removed_from_favorites">Removed from favorites</string>
     <string name="sync_failed">Sync failed</string>
     <string name="press_again_to_exit">Press again to exit</string>
+    <string name="cancel">Cancel</string>
+    <string name="delete_selected">Delete Selected</string>
+    <string name="confirm_delete">Confirm Delete</string>
+    <string name="batch_delete_msg">Are you sure you want to permanently delete the selected %1$d items? This action cannot be undone.</string>
 </resources>

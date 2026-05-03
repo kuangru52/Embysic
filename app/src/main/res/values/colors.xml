@@ -36,4 +36,9 @@
 
     <!-- 最近/收藏页深色模式背景 -->
     <color name="recent_bg_dark">#121212</color>
+
+    <!-- 对话框背景颜色 -->
+    <!-- 液态玻璃专用：浅色模式下提高不透明度以增强文字对比度 (45% White) -->
+    <color name="dialog_bg">#73FFFFFF</color>
+    <color name="dialog_stroke">#1A000000</color>
 </resources>

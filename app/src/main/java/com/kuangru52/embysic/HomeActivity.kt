@@ -40,6 +40,62 @@ class HomeActivity : AppCompatActivity() {
     private var apiService: EmbyApiService? = null
     private val activityScope = CoroutineScope(Dispatchers.Main)
 
+    private var activeDialogRect: RectF? = null
+
+    fun applyDialogEffect(rect: RectF, radius: Float, refractionAmount: Float, refractionHeight: Float, blurRadius: Float) {
+        activeDialogRect = rect
+        updateMainEffect()
+    }
+
+    fun clearDialogEffect() {
+        activeDialogRect = null
+        updateMainEffect()
+    }
+
+    private fun updateMainEffect() {
+        val container = findViewById<FrameLayout>(R.id.fragment_container) ?: return
+        val bottomView = findViewById<View>(R.id.bottom_container) ?: return
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val dm = resources.displayMetrics
+            val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
+            val px16dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, dm)
+            val px20dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
+            val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
+            val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
+            val px4dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, dm)
+
+            val containerLocation = IntArray(2)
+            container.getLocationOnScreen(containerLocation)
+            val bottomLocation = IntArray(2)
+            bottomView.getLocationOnScreen(bottomLocation)
+            
+            val relativeTop = (bottomLocation[1] - containerLocation[1]).toFloat()
+            
+            val glassRect = RectF(
+                px20dp,
+                relativeTop + px16dp,
+                container.width.toFloat() - px20dp,
+                relativeTop + bottomView.height.toFloat() - px16dp
+            )
+
+            val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+
+            val effect = LiquidGlassFactory.createLiquidRenderEffect(
+                width = container.width.toFloat(),
+                height = container.height.toFloat(),
+                rect = glassRect,
+                radius = px38dp,
+                refractionAmount = pxNeg60dp, 
+                refractionHeight = px20dpRefHeight,
+                blurRadius = px4dpBlurRadius,
+                isDark = isDark,
+                rect2 = activeDialogRect
+            )
+            container.setRenderEffect(effect)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -66,7 +122,7 @@ class HomeActivity : AppCompatActivity() {
             if (controller != null) {
                 mediaController = controller
                 setupController(controller)
-                
+
                 findViewById<ComposeView>(R.id.bottom_container).setContent {
                     BottomTabs(
                         controller = controller,
@@ -85,7 +141,7 @@ class HomeActivity : AppCompatActivity() {
                             val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
                             val userId = prefs.getString("user_id", "") ?: ""
                             val accessToken = prefs.getString("access_token", "") ?: ""
-                            val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.0\", Token=\"$accessToken\""
+                            val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
                             
                             activityScope.launch {
                                 try {
@@ -103,49 +159,12 @@ class HomeActivity : AppCompatActivity() {
                     )
                 }
 
-                // 核心：实现真正的物理折射。折射效果作用于底层的 fragment_container，而底栏 UI 悬浮其上
+                // 核心：实现真正的物理折射。
                 findViewById<FrameLayout>(R.id.fragment_container).let { container ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         val bottomView = findViewById<View>(R.id.bottom_container)
-                        
                         bottomView.viewTreeObserver.addOnGlobalLayoutListener {
-                            val dm = resources.displayMetrics
-                            val px20dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
-                            val px16dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 16f, dm)
-                            val px30dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 30f, dm)
-                            val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
-                            val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
-                            val px4dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, dm)
-
-                            val containerLocation = IntArray(2)
-                            container.getLocationOnScreen(containerLocation)
-                            val bottomLocation = IntArray(2)
-                            bottomView.getLocationOnScreen(bottomLocation)
-                            
-                            val relativeTop = (bottomLocation[1] - containerLocation[1]).toFloat()
-                            
-                            // 精确计算底栏玻璃板的 Rect（一体化 30dp 圆角区域）
-                            val glassRect = RectF(
-                                px20dp,
-                                relativeTop + px16dp,
-                                container.width.toFloat() - px20dp,
-                                relativeTop + bottomView.height.toFloat() - px16dp
-                            )
-
-                            val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-
-                            // 应用参数：折射量 -60dp, 折射高度 20dp, 模糊半径 4dp
-                            val effect = LiquidGlassFactory.createLiquidRenderEffect(
-                                width = container.width.toFloat(),
-                                height = container.height.toFloat(),
-                                rect = glassRect,
-                                radius = px30dp,
-                                refractionAmount = pxNeg60dp, 
-                                refractionHeight = px20dpRefHeight,
-                                blurRadius = px4dpBlurRadius,
-                                isDark = isDark
-                            )
-                            container.setRenderEffect(effect)
+                            updateMainEffect()
                         }
                     }
                 }
@@ -216,7 +235,7 @@ class HomeActivity : AppCompatActivity() {
         val accessToken = prefs.getString("access_token", "") ?: ""
         if (userId.isEmpty() || accessToken.isEmpty()) return
 
-        val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.0\", Token=\"$accessToken\""
+        val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.42\", Token=\"$accessToken\""
 
         activityScope.launch {
             try {
@@ -241,7 +260,10 @@ class HomeActivity : AppCompatActivity() {
     }
 
     fun showPlayer() {
-        PlayerDialogFragment().show(supportFragmentManager, "player")
+        Log.d("HomeActivity", "showPlayer: controller=$mediaController")
+        val dialog = PlayerDialogFragment()
+        mediaController?.let { dialog.setPlayer(it) }
+        dialog.show(supportFragmentManager, "player")
     }
 
     fun replaceFragment(fragment: Fragment, tag: String? = null) {

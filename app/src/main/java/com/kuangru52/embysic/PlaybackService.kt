@@ -90,15 +90,15 @@ class PlaybackService : MediaSessionService() {
             .setUpstreamDataSourceFactory(httpDataSourceFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-        // 2. 自定义缓冲策略：让它更积极地预加载，应对不主动缓存的问题
+        // 2. 自定义缓冲策略：大幅增加缓冲区以应对高码率无损音频 (FLAC/WAV)
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
-                50000,  // minBufferMs: 提高到 50s。只要不满 50s，播放器就会一直尝试下载
-                120000, // maxBufferMs: 最大缓存 120s
-                2500,   // bufferForPlaybackMs: 2.5s 即可起播
-                5000    // bufferForPlaybackAfterRebufferMs: 5s
+                60000,  // minBufferMs: 提高到 60s
+                240000, // maxBufferMs: 最大缓冲 4 分钟 (源码播放需要更多冗余)
+                5000,   // bufferForPlaybackMs: 提高到 5s 确保起播稳定性
+                8000    // bufferForPlaybackAfterRebufferMs: 重缓冲后需要 8s 数据再起播
             )
-            .setBackBuffer(30000, true) // 增加 30s 后退缓冲区
+            .setBackBuffer(60000, true) // 增加 60s 后退缓冲区，方便拖动
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -111,6 +111,21 @@ class PlaybackService : MediaSessionService() {
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val newSessionId = mediaItem?.mediaMetadata?.extras?.getString("play_session_id")
+                val oldSessionId = currentItemExtras?.getString("play_session_id")
+
+                // 如果是列表重载导致的无缝切换（SessionId 未变），跳过汇报以防止卡顿
+                if (newSessionId != null && newSessionId == oldSessionId) {
+                    Log.d("PlaybackService", "Seamless transition detected, skipping report cycle")
+                    lastReportedItemId = mediaItem?.mediaId
+                    currentItemExtras = mediaItem?.mediaMetadata?.extras
+                    // 关键：虽然跳过 Stop/Start 汇报，但需要更新 isStartReported 状态，
+                    // 否则如果下一首 SessionId 变了，可能会因为 isStartReported 为 true 而不汇报 Start
+                    isStartReported = true 
+                    currentReportingItemId = mediaItem?.mediaId
+                    return
+                }
+
                 // 1. 汇报旧歌停止：必须使用旧歌的 Extras（包含其对应的 PlaySessionId）
                 if (lastReportedItemId != null) {
                     reportStop(lastReportedItemId, currentItemExtras, lastKnownPositionMs)
@@ -197,7 +212,14 @@ class PlaybackService : MediaSessionService() {
                     .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                     .add(Player.COMMAND_SEEK_TO_NEXT)
                     .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                    .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
+                    .add(Player.COMMAND_GET_TIMELINE)
+                    .add(Player.COMMAND_GET_METADATA)
                     .add(Player.COMMAND_SET_SPEED_AND_PITCH)
+                    .add(Player.COMMAND_SET_REPEAT_MODE)
+                    .add(Player.COMMAND_SET_SHUFFLE_MODE)
                     .build()
             }
         }
@@ -239,14 +261,11 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-                    // 彻底放开所有权限，包括 Seek (Command 5)
+                    // 彻底放开所有权限，确保 Controller 能感知 Timeline
                     val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
                         .build()
-                    val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-                        .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                        .add(Player.COMMAND_SEEK_TO_NEXT)
-                        .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                        .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+                    val playerCommands = Player.Commands.Builder()
+                        .addAllCommands() // 直接赋予全部权限，最稳妥的工业做法
                         .build()
                     
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
@@ -299,7 +318,7 @@ class PlaybackService : MediaSessionService() {
         val accessToken = prefs.getString("access_token", "") ?: ""
         val userId = prefs.getString("user_id", "") ?: ""
         // 完全对标 SPlayer 的 Header 格式
-        return "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.12\", Token=\"$accessToken\", UserId=\"$userId\""
+        return "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\", UserId=\"$userId\""
     }
 
     private var isStartReported = false

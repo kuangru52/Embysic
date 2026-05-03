@@ -1,0 +1,215 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FF121212">
+
+    <ImageView
+        android:id="@+id/ivBlurBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0.4"
+        android:contentDescription="@null" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="24dp">
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp">
+
+            <ImageView
+                android:id="@+id/btnBack"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_skip_previous_vector"
+                android:rotation="90"
+                android:padding="4dp"
+                app:tint="@android:color/white"
+                android:contentDescription="Back" />
+
+            <TextView
+                android:id="@+id/tvPlayModeHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerInParent="true"
+                android:textColor="#CCFFFFFF"
+                android:textSize="14sp"
+                android:visibility="gone"
+                tools:text="单曲循环"
+                tools:visibility="visible" />
+        </RelativeLayout>
+
+        <FrameLayout
+            android:id="@+id/contentContainer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <RelativeLayout
+                android:id="@+id/rlDiscContainer"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <RelativeLayout
+                    android:id="@+id/rlDisc"
+                    android:layout_width="300dp"
+                    android:layout_height="300dp"
+                    android:layout_centerInParent="true">
+
+                    <ImageView
+                        android:id="@+id/ivDisc"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:src="@drawable/disk"
+                        android:scaleType="fitCenter"
+                        android:contentDescription="@null" />
+
+                    <androidx.cardview.widget.CardView
+                        android:layout_width="200dp"
+                        android:layout_height="200dp"
+                        android:layout_centerInParent="true"
+                        app:cardCornerRadius="100dp"
+                        app:cardElevation="0dp">
+
+                        <ImageView
+                            android:id="@+id/ivAlbumArt"
+                            android:layout_width="match_parent"
+                            android:layout_height="match_parent"
+                            android:scaleType="centerCrop"
+                            tools:src="@android:drawable/ic_menu_gallery"
+                            android:contentDescription="Album Art" />
+                    </androidx.cardview.widget.CardView>
+                </RelativeLayout>
+            </RelativeLayout>
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvLyrics"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@android:color/white"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"
+            tools:text="Song Title" />
+
+        <TextView
+            android:id="@+id/tvArtist"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="#B3FFFFFF"
+            android:textSize="16sp"
+            android:layout_marginTop="4dp"
+            tools:text="Artist Name" />
+
+        <TextView
+            android:id="@+id/tvAudioQuality"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textColor="#80FFFFFF"
+            android:textSize="12sp"
+            android:layout_marginTop="8dp"
+            tools:text="SQ" />
+
+        <SeekBar
+            android:id="@+id/seekBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:progressTint="@android:color/white"
+            android:thumbTint="@android:color/white" />
+
+        <RelativeLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp">
+
+            <TextView
+                android:id="@+id/tvCurrentTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp"
+                tools:text="00:00" />
+
+            <TextView
+                android:id="@+id/tvTotalTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:textColor="#B3FFFFFF"
+                android:textSize="12sp"
+                tools:text="04:00" />
+        </RelativeLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp">
+
+            <ImageView
+                android:id="@+id/btnPlayMode"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_repeat_vector"
+                app:tint="@android:color/white"
+                android:contentDescription="Play Mode" />
+
+            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+
+            <ImageView
+                android:id="@+id/btnPrev"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_skip_previous_vector"
+                app:tint="@android:color/white"
+                android:contentDescription="Previous" />
+
+            <ImageView
+                android:id="@+id/btnPlayPause"
+                android:layout_width="72dp"
+                android:layout_height="72dp"
+                android:src="@drawable/ic_play_vector"
+                android:layout_marginHorizontal="24dp"
+                app:tint="@android:color/white"
+                android:contentDescription="Play/Pause" />
+
+            <ImageView
+                android:id="@+id/btnNext"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:src="@drawable/ic_skip_next_vector"
+                app:tint="@android:color/white"
+                android:contentDescription="Next" />
+
+            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+
+            <ImageView
+                android:id="@+id/btnMore"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:src="@drawable/ic_heart_border"
+                app:tint="@android:color/white"
+                android:contentDescription="Favorite" />
+        </LinearLayout>
+
+    </LinearLayout>
+</FrameLayout>

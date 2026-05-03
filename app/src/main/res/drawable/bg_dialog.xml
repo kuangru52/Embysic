@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 采用微带磨砂感的半透明背景，匹配 LiquidGlass 风格 -->
+    <solid android:color="@color/dialog_bg" />
+    <corners android:radius="38dp" />
+    <stroke android:width="0.5dp" android:color="@color/dialog_stroke" />
+</shape>

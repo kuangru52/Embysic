@@ -157,11 +157,14 @@ object LiquidGlassFactory {
         refractionAmount: Float,
         refractionHeight: Float,
         blurRadius: Float,
-        isDark: Boolean
+        isDark: Boolean,
+        rect2: RectF? = null // 新增支持第二个区域（如弹窗）
     ): RenderEffect {
         val shader = RuntimeShader("""
             uniform shader content;
             uniform float4 glassRect;
+            uniform float4 glassRect2;
+            uniform float hasRect2;
             uniform float radius;
             uniform float refractionAmount;
             uniform float refractionHeight;
@@ -173,57 +176,80 @@ object LiquidGlassFactory {
                 return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
             }
 
+            // 平滑最小值函数，用于融合两个矩形
+            float smin(float a, float b, float k) {
+                float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+                return mix(b, a, h) - k * h * (1.0 - h);
+            }
+
             half4 main(float2 fragCoord) {
-                float2 rectSize = (glassRect.zw - glassRect.xy) * 0.5;
-                float2 rectCenter = glassRect.xy + rectSize;
+                float2 s1 = (glassRect.zw - glassRect.xy) * 0.5;
+                float2 c1 = glassRect.xy + s1;
+                float d1 = sdRoundedRect(fragCoord - c1, s1, radius);
+
+                float d = d1;
+                if (hasRect2 > 0.5) {
+                    float2 s2 = (glassRect2.zw - glassRect2.xy) * 0.5;
+                    float2 c2 = glassRect2.xy + s2;
+                    float d2 = sdRoundedRect(fragCoord - c2, s2, radius);
+                    // 使用 smin 融合两个区域，消除相交处的硬线条
+                    d = smin(d1, d2, 12.0);
+                }
                 
-                float d = sdRoundedRect(fragCoord - rectCenter, rectSize, radius);
+                if (d > 0.0) return content.eval(fragCoord);
+
+                // 物理折射：仅在边缘极小范围内产生 (收窄至 refractionHeight)
+                float2 eps = float2(0.5, 0.0);
+                float d_up = sdRoundedRect(fragCoord + eps.yx - c1, s1, radius);
+                float d_dn = sdRoundedRect(fragCoord - eps.yx - c1, s1, radius);
+                float d_rt = sdRoundedRect(fragCoord + eps.xy - c1, s1, radius);
+                float d_lf = sdRoundedRect(fragCoord - eps.xy - c1, s1, radius);
                 
-                // 仅在圆角矩形范围内应用效果，范围外保持绝对清晰
-                if (d > 0.0) {
-                    return content.eval(fragCoord);
+                if (hasRect2 > 0.5) {
+                    float2 s2 = (glassRect2.zw - glassRect2.xy) * 0.5;
+                    float2 c2 = glassRect2.xy + s2;
+                    d_up = smin(d_up, sdRoundedRect(fragCoord + eps.yx - c2, s2, radius), 12.0);
+                    d_dn = smin(d_dn, sdRoundedRect(fragCoord - eps.yx - c2, s2, radius), 12.0);
+                    d_rt = smin(d_rt, sdRoundedRect(fragCoord + eps.xy - c2, s2, radius), 12.0);
+                    d_lf = smin(d_lf, sdRoundedRect(fragCoord - eps.xy - c2, s2, radius), 12.0);
                 }
 
-                float2 eps = float2(0.8, 0.0);
-                float dX = sdRoundedRect(fragCoord + eps.xy - rectCenter, rectSize, radius) - 
-                           sdRoundedRect(fragCoord - eps.xy - rectCenter, rectSize, radius);
-                float dY = sdRoundedRect(fragCoord + eps.yx - rectCenter, rectSize, radius) - 
-                           sdRoundedRect(fragCoord - eps.yx - rectCenter, rectSize, radius);
+                float2 normal = normalize(float2(d_rt - d_lf, d_up - d_dn) + 0.0001);
                 
-                float2 normal = normalize(float2(dX, dY) + 0.0001);
-                
-                // 1. 计算折射位移 (Refraction)
+                // 核心修复：factor 使用更陡峭的曲线，确保中心快速归零
+                // 我们将折射高度锁定在边缘的一小圈
                 float factor = smoothstep(-refractionHeight, 0.0, d);
                 float2 distortion = normal * factor * refractionAmount;
                 float2 uv = fragCoord + distortion;
                 
-                // 2. 极致丝滑的黄金螺旋采样 (Kyant0 风格)
-                if (blurRadius <= 0.0) {
-                    return content.eval(uv);
-                }
-                
                 half4 col = half4(0.0);
-                float golden_angle = 2.39996; // 黄金角度
-                int sampleCount = 32;        // 32点高密度采样
-                
                 for (int i = 0; i < 32; i++) {
-                    float f = float(i);
-                    // 螺旋半径随索引增加，形成有机扩散
-                    float r = blurRadius * sqrt(f / 32.0);
-                    float theta = f * golden_angle;
-                    
-                    float2 offset = float2(cos(theta), sin(theta)) * r;
-                    
-                    // 核心：在折射后的 uv 基础上进行螺旋采样
-                    col += content.eval(uv + offset);
+                    float r = blurRadius * sqrt(float(i) / 32.0);
+                    float theta = float(i) * 2.39996;
+                    col += content.eval(uv + float2(cos(theta), sin(theta)) * r);
                 }
-                
-                // 3. 最终输出：保持 100% 物理通透
-                return col / 32.0;
+                col /= 32.0;
+
+                // 材质增益：factor 为 0 的地方（即中心平整区）不应用任何 normal 相关偏移
+                if (isDark > 0.5) {
+                    col.rgb = mix(col.rgb, half3(0.0), 0.06);
+                    col.rgb += (normal.y * 0.04 * factor + 0.02);
+                } else {
+                    col.rgb = mix(col.rgb, half3(1.0), 0.22);
+                    col.rgb += (normal.y * 0.03 * factor + 0.01);
+                }
+                return col;
             }
         """.trimIndent())
 
         shader.setFloatUniform("glassRect", rect.left, rect.top, rect.right, rect.bottom)
+        if (rect2 != null) {
+            shader.setFloatUniform("glassRect2", rect2.left, rect2.top, rect2.right, rect2.bottom)
+            shader.setFloatUniform("hasRect2", 1f)
+        } else {
+            shader.setFloatUniform("glassRect2", 0f, 0f, 0f, 0f)
+            shader.setFloatUniform("hasRect2", 0f)
+        }
         shader.setFloatUniform("radius", radius)
         shader.setFloatUniform("refractionAmount", refractionAmount)
         shader.setFloatUniform("refractionHeight", refractionHeight)

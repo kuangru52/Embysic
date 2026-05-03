@@ -25,7 +25,9 @@ import kotlinx.coroutines.withContext
 
 class LibraryAdapter(
     private val onItemClick: (EmbyItem) -> Unit,
-    private val onItemDoubleClick: ((EmbyItem) -> Unit)? = null
+    private val onItemDoubleClick: ((EmbyItem) -> Unit)? = null,
+    private val onItemDelete: ((EmbyItem) -> Unit)? = null,
+    private val onSelectionModeChanged: ((Boolean) -> Unit)? = null
 ) : RecyclerView.Adapter<LibraryAdapter.ViewHolder>() {
 
     var items: List<EmbyItem> = emptyList()
@@ -34,6 +36,10 @@ class LibraryAdapter(
     private var currentMediaId: String? = null
     private var currentAlbumId: String? = null
     private var currentPlayingPath: String? = null
+    private var expandedDeletePosition: Int = -1
+    
+    private var isSelectionMode = false
+    private val selectedIds = mutableSetOf<String>()
 
     // 缓存颜色和偏好设置，避免 in bind 中重复读取
     private var primaryColor: Int = 0
@@ -72,6 +78,27 @@ class LibraryAdapter(
             currentPlayingPath = path
             notifyDataSetChanged()
         }
+    }
+
+    fun setSelectionMode(enabled: Boolean) {
+        if (isSelectionMode != enabled) {
+            isSelectionMode = enabled
+            if (!enabled) selectedIds.clear()
+            onSelectionModeChanged?.invoke(enabled)
+            notifyDataSetChanged()
+        }
+    }
+
+    fun isSelectionMode() = isSelectionMode
+    fun getSelectedItems() = items.filter { it.Id in selectedIds && it.Id != "BACK_FOLDER" }
+
+    fun toggleSelection(itemId: String) {
+        if (selectedIds.contains(itemId)) {
+            selectedIds.remove(itemId)
+        } else {
+            selectedIds.add(itemId)
+        }
+        notifyDataSetChanged()
     }
 
     private val bitmapCache = LruCache<String, Bitmap>(100)
@@ -140,12 +167,25 @@ class LibraryAdapter(
         private val tvIndex: TextView = view.findViewById(R.id.tvIndex)
         private val tvDuration: TextView = view.findViewById(R.id.tvDuration)
         private val itemContainer: View = view.findViewById(R.id.itemContainer)
+        private val btnDelete: TextView = view.findViewById(R.id.btnDelete)
 
         fun bind(item: EmbyItem) {
+            val position = bindingAdapterPosition
             tvName.text = item.Name
             val isParentFolder = item.Id == "BACK_FOLDER"
             
-            // 时长逻辑
+            // 处理删除按钮显示状态
+            if (!isParentFolder && onItemDelete != null && expandedDeletePosition == position) {
+                btnDelete.visibility = View.VISIBLE
+            } else {
+                btnDelete.visibility = View.GONE
+            }
+
+            btnDelete.setOnClickListener {
+                expandedDeletePosition = -1
+                notifyItemChanged(position)
+                onItemDelete?.invoke(item)
+            }
             if (!item.IsFolder && item.RunTimeTicks != null && item.RunTimeTicks!! > 0) {
                 val totalSeconds = item.RunTimeTicks!! / 10000000
                 val minutes = totalSeconds / 60
@@ -163,6 +203,7 @@ class LibraryAdapter(
 
             val isFolderLike = item.IsFolder || item.Type == "CollectionFolder" || item.Type == "MusicArtist" || item.Type == "MusicAlbum" || isParentFolder
             val isPlayingThis = item.Id == currentMediaId
+            val isSelected = selectedIds.contains(item.Id)
             
             var isCurrentAlbumOrParent = false
             if (isFolderLike && currentPlayingPath != null && item.Path != null) {
@@ -183,7 +224,10 @@ class LibraryAdapter(
                 itemView.foreground = null
             } else {
                 // 正在播放或所在文件夹/专辑，使用黄色淡化卡片+细边框
-                if (isPlayingThis || isCurrentAlbumOrParent) {
+                // 选中状态优先：使用深色/高亮背景
+                if (isSelectionMode && isSelected) {
+                    itemContainer.setBackgroundResource(R.drawable.bg_playing_card) // 复用高亮背景
+                } else if (isPlayingThis || isCurrentAlbumOrParent) {
                     itemContainer.setBackgroundResource(R.drawable.bg_playing_card)
                 } else {
                     itemContainer.setBackgroundResource(R.drawable.bg_compact_card)
@@ -256,19 +300,33 @@ class LibraryAdapter(
                     val neteaseCovers = itemView.context.getSharedPreferences("netease_covers", AppCompatActivity.MODE_PRIVATE)
                     val cachedUrl = neteaseCovers.getString(item.Id, null)
                     
-                    val imageId = if (item.ImageTags?.containsKey("Primary") == true) {
-                        item.Id
+                    val hasPrimary = item.ImageTags?.containsKey("Primary") == true
+                    val imageId = if (hasPrimary) item.Id else (item.AlbumId ?: item.Id)
+                    // 列表页使用 200px 缩略图，极度节省流量
+                    val serverImageUrl = "${serverUrl.trimEnd('/')}/emby/Items/$imageId/Images/Primary?MaxWidth=200&api_key=$accessToken"
+                    
+                    // 优先级：服务器封面（歌曲或专辑）-> 网易云缓存 -> 服务器封面（作为兜底）
+                    val finalImageUrl = if (hasPrimary || item.AlbumId != null) {
+                        serverImageUrl
+                    } else if (cachedUrl != null) {
+                        // 统一清洗 URL 并应用 200px 尺寸
+                        if (cachedUrl.startsWith("http")) {
+                            val cleanUrl = if (cachedUrl.contains("?")) cachedUrl.substringBefore("?") else cachedUrl
+                            "$cleanUrl?param=200y200"
+                        } else cachedUrl
                     } else {
-                        item.AlbumId ?: item.Id
+                        serverImageUrl
                     }
-                    val serverImageUrl = "${serverUrl.trimEnd('/')}/emby/Items/$imageId/Images/Primary?MaxWidth=500&api_key=$accessToken"
-                    val finalImageUrl = cachedUrl ?: serverImageUrl
 
                     ivIcon.load(finalImageUrl) {
                         placeholder(R.drawable.cd)
                         error(R.drawable.cd)
+                        crossfade(true)
                         listener(onError = { _, _ -> 
-                            if (finalImageUrl == serverImageUrl) {
+                            if (finalImageUrl == serverImageUrl && !hasPrimary && cachedUrl != null) {
+                                // 如果服务器加载失败且有缓存，尝试加载缓存
+                                ivIcon.load(cachedUrl) { crossfade(true) }
+                            } else if (finalImageUrl == serverImageUrl && !hasPrimary) {
                                 loadCoverFromTags(item, serverUrl, accessToken)
                             }
                         })
@@ -277,6 +335,20 @@ class LibraryAdapter(
             }
             itemView.setOnClickListener {
                 if (item.Id == "BACK_FOLDER") return@setOnClickListener
+                
+                if (isSelectionMode) {
+                    toggleSelection(item.Id)
+                    return@setOnClickListener
+                }
+
+                // 如果当前有显示的删除按钮，点击任何地方先隐藏它
+                if (expandedDeletePosition != -1) {
+                    val prev = expandedDeletePosition
+                    expandedDeletePosition = -1
+                    notifyItemChanged(prev)
+                    return@setOnClickListener
+                }
+
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - lastClickTime < 300) {
                     onItemDoubleClick?.invoke(item)
@@ -284,6 +356,16 @@ class LibraryAdapter(
                     onItemClick(item)
                 }
                 lastClickTime = currentTime
+            }
+
+            itemView.setOnLongClickListener {
+                if (item.Id == "BACK_FOLDER" || onItemDelete == null) return@setOnLongClickListener true
+                
+                val prev = expandedDeletePosition
+                expandedDeletePosition = position
+                if (prev != -1) notifyItemChanged(prev)
+                notifyItemChanged(expandedDeletePosition)
+                true
             }
         }
 
@@ -296,7 +378,11 @@ class LibraryAdapter(
                     try {
                         retriever.setDataSource(streamUrl, mapOf("X-Emby-Token" to accessToken))
                         retriever.embeddedPicture?.let {
-                            BitmapFactory.decodeByteArray(it, 0, it.size)?.also { b -> bitmapCache.put(item.Id, b) }
+                            BitmapFactory.decodeByteArray(it, 0, it.size)?.also { b -> 
+                                bitmapCache.put(item.Id, b)
+                                // 保存到磁盘持久化，让底部条和播放页也能看到
+                                MediaItemUtils.saveCoverToFile(itemView.context, item.Id, b)
+                            }
                         }
                     } catch (e: Exception) { null } finally { retriever.release() }
                 }

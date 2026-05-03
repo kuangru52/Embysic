@@ -11,9 +11,9 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 17,
-      "versionName": "1.40",
-      "outputFile": "Embysic-1.40.apk"
+      "versionCode": 21,
+      "versionName": "1.44",
+      "outputFile": "Embysic-1.44.apk"
     }
   ],
   "elementType": "File",
@@ -22,14 +22,14 @@
       "minApi": 28,
       "maxApi": 30,
       "baselineProfiles": [
-        "baselineProfiles/1/Embysic-1.40.dm"
+        "baselineProfiles/1/Embysic-1.44.dm"
       ]
     },
     {
       "minApi": 31,
       "maxApi": 2147483647,
       "baselineProfiles": [
-        "baselineProfiles/0/Embysic-1.40.dm"
+        "baselineProfiles/0/Embysic-1.44.dm"
       ]
     }
   ],

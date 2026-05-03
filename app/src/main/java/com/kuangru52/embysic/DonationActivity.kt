@@ -42,6 +42,7 @@ class DonationActivity : ComponentActivity() {
 
     private val aliPayCode = "a6x04287fr0sxv9zqrc0m31"
     private val telegramUrl = "https://t.me/+FFEviJJq9GkyOWFl"
+    private val qqGroupId = "1027610757"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -142,22 +143,49 @@ class DonationActivity : ComponentActivity() {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                Button(
-                    onClick = { openTelegram(telegramUrl) },
-                    modifier = Modifier
-                        .fillMaxWidth(0.7f)
-                        .height(56.dp),
-                    shape = RoundedCornerShape(28.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF2196F3).copy(alpha = 0.9f)
-                    )
+                Row(
+                    modifier = Modifier.fillMaxWidth(0.9f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = "加入 Telegram 群组",
-                        fontSize = 18.sp,
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Button(
+                        onClick = { openTelegram(telegramUrl) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2196F3).copy(alpha = 0.9f)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Text(
+                            text = "Telegram群",
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
+
+                    Button(
+                        onClick = { joinQQGroup(qqGroupId) },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF12B7F5).copy(alpha = 0.9f)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 4.dp)
+                    ) {
+                        Text(
+                            text = "QQ交流群",
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1
+                        )
+                    }
                 }
             }
 
@@ -184,6 +212,17 @@ class DonationActivity : ComponentActivity() {
             startActivity(intent)
         } catch (e: Exception) {
             Toast.makeText(this, "无法打开链接", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun joinQQGroup(groupId: String) {
+        try {
+            val url = "mqqapi://card/show_pslcard?src_type=internal&version=1&uin=$groupId&card_type=group&source=qrcode"
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, "未检测到 QQ，或无法打开链接", Toast.LENGTH_SHORT).show()
         }
     }
 

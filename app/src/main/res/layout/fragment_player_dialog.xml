@@ -4,7 +4,9 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FF121212">
+    android:background="@android:color/transparent"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
     <ImageView
         android:id="@+id/ivBlurBackground"
@@ -18,22 +20,16 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:paddingHorizontal="24dp"
+        android:paddingTop="24dp"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
         <RelativeLayout
+            android:id="@+id/rlTopBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp">
-
-            <ImageView
-                android:id="@+id/btnBack"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:src="@drawable/ic_skip_previous_vector"
-                android:rotation="90"
-                android:padding="4dp"
-                app:tint="@android:color/white"
-                android:contentDescription="Back" />
 
             <TextView
                 android:id="@+id/tvPlayModeHint"
@@ -42,7 +38,10 @@
                 android:layout_centerInParent="true"
                 android:textColor="#CCFFFFFF"
                 android:textSize="14sp"
-                android:visibility="gone"
+                android:background="@drawable/bg_play_mode_hint"
+                android:paddingHorizontal="12dp"
+                android:paddingVertical="4dp"
+                android:visibility="invisible"
                 tools:text="单曲循环"
                 tools:visibility="visible" />
         </RelativeLayout>
@@ -51,18 +50,31 @@
             android:id="@+id/contentContainer"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1">
+            android:layout_weight="1"
+            android:clipChildren="false"
+            android:clipToPadding="false">
 
-            <RelativeLayout
+            <!-- 唱片机总容器：改为 FrameLayout 确保内部组件绝对独立 -->
+            <FrameLayout
                 android:id="@+id/rlDiscContainer"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent">
+                android:layout_height="match_parent"
+                android:clipChildren="false"
+                android:clipToPadding="false">
 
+                <!-- 1. 底部：半透明装饰环 (已缩小宽度) -->
+                <View
+                    android:layout_width="310dp"
+                    android:layout_height="310dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_player_disc_ring" />
+
+                <!-- 2. 中间：旋转的唱片 (只有这个层级会转) -->
                 <RelativeLayout
                     android:id="@+id/rlDisc"
                     android:layout_width="300dp"
                     android:layout_height="300dp"
-                    android:layout_centerInParent="true">
+                    android:layout_gravity="center">
 
                     <ImageView
                         android:id="@+id/ivDisc"
@@ -73,6 +85,7 @@
                         android:contentDescription="@null" />
 
                     <androidx.cardview.widget.CardView
+                        android:id="@+id/cvAlbumArt"
                         android:layout_width="200dp"
                         android:layout_height="200dp"
                         android:layout_centerInParent="true"
@@ -83,56 +96,155 @@
                             android:id="@+id/ivAlbumArt"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
+                            android:contentDescription="Album Art"
                             android:scaleType="centerCrop"
-                            tools:src="@android:drawable/ic_menu_gallery"
-                            android:contentDescription="Album Art" />
+                            tools:src="@android:drawable/ic_menu_gallery" />
                     </androidx.cardview.widget.CardView>
                 </RelativeLayout>
-            </RelativeLayout>
+
+                <!-- 3. 顶部：绝对独立的唱针 (通过 translation 定位，永不跟随旋转) -->
+                <ImageView
+                    android:id="@+id/ivNeedle"
+                    android:layout_width="132dp"
+                    android:layout_height="161dp"
+                    android:layout_gravity="center"
+                    android:translationX="30dp"
+                    android:translationY="-145dp"
+                    android:contentDescription="@null"
+                    android:scaleType="fitCenter"
+                    android:src="@drawable/styli2"
+                    android:transformPivotX="25dp"
+                    android:transformPivotY="25dp" />
+
+            </FrameLayout>
 
             <androidx.recyclerview.widget.RecyclerView
                 android:id="@+id/rvLyrics"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:visibility="gone" />
+                android:visibility="gone"
+                android:paddingTop="150dp"
+                android:paddingBottom="150dp"
+                android:clipToPadding="false" />
         </FrameLayout>
 
-        <TextView
-            android:id="@+id/tvTitle"
+        <!-- 音量提示条 (由底部点阵区触发) - 移至唱片与歌名之间，使用 INVISIBLE 确保布局不跳变 -->
+        <LinearLayout
+            android:id="@+id/llVolumeHint"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="@android:color/white"
-            android:textSize="24sp"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end"
-            tools:text="Song Title" />
+            android:layout_height="32dp"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:visibility="invisible"
+            android:layout_marginTop="-8dp"
+            android:layout_marginBottom="4dp"
+            tools:visibility="visible"
+            android:layout_gravity="center_horizontal">
 
-        <TextView
-            android:id="@+id/tvArtist"
+            <ImageView
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_music_note"
+                app:tint="@android:color/white"
+                android:contentDescription="@null" />
+
+            <SeekBar
+                android:id="@+id/sbVolumeHint"
+                android:layout_width="180dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp"
+                android:progressTint="@android:color/white"
+                android:progressBackgroundTint="#33FFFFFF"
+                android:splitTrack="false"
+                android:thumb="@null"
+                android:maxHeight="2.5dp"
+                android:minHeight="2.5dp"
+                tools:progress="50" />
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textColor="#B3FFFFFF"
-            android:textSize="16sp"
-            android:layout_marginTop="4dp"
-            tools:text="Artist Name" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="8dp">
+
+            <LinearLayout
+                android:id="@+id/llTitleContainer"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?attr/selectableItemBackground">
+
+                <TextView
+                    android:id="@+id/tvTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="@android:color/white"
+                    android:textSize="24sp"
+                    android:textStyle="bold"
+                    android:maxLines="1"
+                    android:ellipsize="end"
+                    tools:text="Song Title" />
+
+                <TextView
+                    android:id="@+id/tvArtist"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="16sp"
+                    android:layout_marginTop="4dp"
+                    tools:text="Artist Name" />
+            </LinearLayout>
+
+            <ImageView
+                android:id="@+id/btnMore"
+                android:layout_width="32dp"
+                android:layout_height="32dp"
+                android:layout_marginStart="16dp"
+                android:src="@drawable/ic_heart_border"
+                app:tint="#66FFFFFF"
+                android:contentDescription="Favorite" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tvAudioQuality"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#80FFFFFF"
-            android:textSize="12sp"
+            android:textColor="#B3FFFFFF"
+            android:textSize="11sp"
             android:layout_marginTop="8dp"
+            android:paddingHorizontal="0dp"
+            android:paddingVertical="0dp"
             tools:text="SQ" />
+
+        <!-- 下载进度条 -->
+        <ProgressBar
+            android:id="@+id/pbDownload"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="2dp"
+            android:layout_marginTop="12dp"
+            android:progress="0"
+            android:max="100"
+            android:visibility="gone"
+            android:progressTint="@android:color/white"
+            android:progressBackgroundTint="#33FFFFFF" />
 
         <SeekBar
             android:id="@+id/seekBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
+            android:layout_marginTop="12dp"
             android:progressTint="@android:color/white"
-            android:thumbTint="@android:color/white" />
+            android:thumbTint="@android:color/white"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp" />
 
         <RelativeLayout
             android:layout_width="match_parent"
@@ -146,6 +258,15 @@
                 android:textColor="#B3FFFFFF"
                 android:textSize="12sp"
                 tools:text="00:00" />
+
+            <ImageView
+                android:id="@+id/btnPlayMode"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_centerInParent="true"
+                android:src="@drawable/ic_repeat_vector"
+                app:tint="#B3FFFFFF"
+                android:contentDescription="Play Mode" />
 
             <TextView
                 android:id="@+id/tvTotalTime"
@@ -163,17 +284,7 @@
             android:orientation="horizontal"
             android:gravity="center"
             android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp">
-
-            <ImageView
-                android:id="@+id/btnPlayMode"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:src="@drawable/ic_repeat_vector"
-                app:tint="@android:color/white"
-                android:contentDescription="Play Mode" />
-
-            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
+            android:layout_marginBottom="8dp">
 
             <ImageView
                 android:id="@+id/btnPrev"
@@ -188,7 +299,7 @@
                 android:layout_width="72dp"
                 android:layout_height="72dp"
                 android:src="@drawable/ic_play_vector"
-                android:layout_marginHorizontal="24dp"
+                android:layout_marginHorizontal="32dp"
                 app:tint="@android:color/white"
                 android:contentDescription="Play/Pause" />
 
@@ -200,16 +311,29 @@
                 app:tint="@android:color/white"
                 android:contentDescription="Next" />
 
-            <View android:layout_width="0dp" android:layout_height="0dp" android:layout_weight="1" />
-
-            <ImageView
-                android:id="@+id/btnMore"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:src="@drawable/ic_heart_border"
-                app:tint="@android:color/white"
-                android:contentDescription="Favorite" />
         </LinearLayout>
+
+        <!-- 底部点阵音量触发区 -->
+        <FrameLayout
+            android:id="@+id/bottomTouchArea"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginHorizontal="-24dp"
+            android:layout_marginTop="20dp"
+            android:layout_marginBottom="20dp">
+
+            <com.kuangru52.embysic.VolumeDotView
+                android:id="@+id/volumeDotView"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:alpha="0" />
+
+        </FrameLayout>
+
+        <View
+            android:id="@+id/navigationBarSpacer"
+            android:layout_width="match_parent"
+            android:layout_height="0dp" />
 
     </LinearLayout>
 </FrameLayout>

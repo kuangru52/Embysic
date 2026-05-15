@@ -21,10 +21,12 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
+@UnstableApi
 class LibraryFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
@@ -212,7 +214,8 @@ class LibraryFragment : Fragment() {
                 }
             }
             progressBar.visibility = View.GONE
-            Toast.makeText(context, "Deleted $successCount items" + (if (failCount > 0) ", $failCount failed" else ""), Toast.LENGTH_SHORT).show()
+            val msg = getString(R.string.deleted_success) + " $successCount items" + (if (failCount > 0) ", $failCount failed" else "")
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
             adapter.setSelectionMode(false)
             // 刷新列表
             val artistId = arguments?.getString("artist_id")
@@ -227,8 +230,8 @@ class LibraryFragment : Fragment() {
             .setView(dialogView)
             .create()
 
-        dialogView.findViewById<TextView>(R.id.dialogTitle).text = "确认删除"
-        dialogView.findViewById<TextView>(R.id.dialogMessage).text = "确定要永久删除 \"${item.Name}\" 吗？\n此操作不可撤销。"
+        dialogView.findViewById<TextView>(R.id.dialogTitle).text = getString(R.string.confirm_delete)
+        dialogView.findViewById<TextView>(R.id.dialogMessage).text = getString(R.string.delete_msg, item.Name)
         
         dialogView.findViewById<TextView>(R.id.btnCancel).setOnClickListener {
             dialog.dismiss()
@@ -292,7 +295,7 @@ class LibraryFragment : Fragment() {
         lifecycleScope.launch {
             try {
                 service.deleteItem(item.Id, authHeader)
-                Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.deleted_success, Toast.LENGTH_SHORT).show()
                 // 刷新当前列表
                 val artistId = arguments?.getString("artist_id")
                 val artistName = arguments?.getString("artist_name")

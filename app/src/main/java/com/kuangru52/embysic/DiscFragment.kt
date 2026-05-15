@@ -15,6 +15,7 @@ import coil.load
 class DiscFragment : Fragment() {
     private lateinit var rlDisc: View
     private lateinit var ivCover: ImageView
+    private lateinit var ivNeedle: ImageView
     private var discRotation = 0f
     private val handler = Handler(Looper.getMainLooper())
     private val rotationRunnable = object : Runnable {
@@ -32,6 +33,9 @@ class DiscFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_disc, container, false)
         rlDisc = view.findViewById(R.id.rlDisc)
         ivCover = view.findViewById(R.id.ivFullCover)
+        ivNeedle = view.findViewById(R.id.ivNeedle)
+        
+        ivNeedle.rotation = -25f
         
         setupPlayerListener()
         return view
@@ -51,6 +55,14 @@ class DiscFragment : Fragment() {
                         override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
                             updateUI(player)
                         }
+                        override fun onIsPlayingChanged(isPlaying: Boolean) {
+                            updateNeedle(isPlaying)
+                            if (isPlaying) {
+                                this@DiscFragment.handler.post(rotationRunnable)
+                            } else {
+                                this@DiscFragment.handler.removeCallbacks(rotationRunnable)
+                            }
+                        }
                     })
                     this@DiscFragment.handler.post(rotationRunnable)
                 } else {
@@ -63,7 +75,14 @@ class DiscFragment : Fragment() {
 
     private fun updateUI(player: Player) {
         val item = player.currentMediaItem ?: return
-        ivCover.load(item.mediaMetadata.artworkUri) {
+        val itemId = item.mediaId
+        
+        // 优先检查本地缓存封面，提高加载速度
+        val prefs = context?.getSharedPreferences("netease_covers", android.content.Context.MODE_PRIVATE)
+        val cachedCover = prefs?.getString(itemId, null)
+        val artworkUri = if (cachedCover != null) android.net.Uri.parse(cachedCover) else item.mediaMetadata.artworkUri
+
+        ivCover.load(artworkUri) {
             crossfade(true)
             placeholder(R.drawable.cd)
             error(R.drawable.cd)
@@ -71,11 +90,19 @@ class DiscFragment : Fragment() {
         
         // 更新旋转状态
         val isPlaying = player.isPlaying
+        updateNeedle(isPlaying)
         if (isPlaying) {
             handler.post(rotationRunnable)
         } else {
             handler.removeCallbacks(rotationRunnable)
         }
+    }
+
+    private fun updateNeedle(isPlaying: Boolean) {
+        ivNeedle.animate()
+            .rotation(if (isPlaying) 15f else -25f) // 15f 是【播放/放下】角度，-25f 是【暂停/抬起】角度
+            .setDuration(400)
+            .start()
     }
 
     override fun onDestroyView() {

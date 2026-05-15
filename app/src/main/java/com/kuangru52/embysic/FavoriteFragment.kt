@@ -15,6 +15,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -22,6 +23,7 @@ import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
+@UnstableApi
 class FavoriteFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
@@ -95,8 +97,8 @@ class FavoriteFragment : Fragment() {
             .setView(dialogView)
             .create()
 
-        dialogView.findViewById<android.widget.TextView>(R.id.dialogTitle).text = "确认删除"
-        dialogView.findViewById<android.widget.TextView>(R.id.dialogMessage).text = "确定要永久删除 \"${item.Name}\" 吗？\n此操作不可撤销。"
+        dialogView.findViewById<android.widget.TextView>(R.id.dialogTitle).text = getString(R.string.confirm_delete)
+        dialogView.findViewById<android.widget.TextView>(R.id.dialogMessage).text = getString(R.string.delete_msg, item.Name)
         
         dialogView.findViewById<android.widget.TextView>(R.id.btnCancel).setOnClickListener {
             dialog.dismiss()
@@ -157,10 +159,10 @@ class FavoriteFragment : Fragment() {
         lifecycleScope.launch {
             try {
                 service.deleteItem(item.Id, authHeader)
-                Toast.makeText(context, "已删除", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.deleted_success, Toast.LENGTH_SHORT).show()
                 loadFavoriteItems()
             } catch (e: Exception) {
-                Toast.makeText(context, "删除失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, getString(R.string.delete_failed, e.message), Toast.LENGTH_SHORT).show()
             }
         }
     }

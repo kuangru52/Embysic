@@ -9,6 +9,12 @@ import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 interface EmbyApiService {
+    @POST("emby/Users/AuthenticateByName")
+    suspend fun authenticateByName(
+        @Header("X-Emby-Authorization") auth: String,
+        @retrofit2.http.Body request: AuthenticateRequest
+    ): AuthenticateResponse
+
     @GET("emby/Users/{userId}/Views")
     suspend fun getUserViews(
         @Path("userId") userId: String,
@@ -129,7 +135,8 @@ interface EmbyApiService {
     suspend fun getItem(
         @Path("userId") userId: String,
         @Path("itemId") itemId: String,
-        @Header("X-Emby-Authorization") auth: String
+        @Header("X-Emby-Authorization") auth: String,
+        @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,ParentId,HasLyrics,ArtistItems,AlbumArtists"
     ): EmbyItem
 
     @POST("emby/Users/{userId}/Items/{itemId}/UserData")
@@ -292,4 +299,19 @@ data class MediaStream(
     val SampleRate: Int? = null,
     val BitDepth: Int? = null,
     val Channels: Int? = null
+)
+
+data class AuthenticateRequest(
+    val Username: String? = null,
+    val Pw: String? = null
+)
+
+data class AuthenticateResponse(
+    val AccessToken: String? = null,
+    val User: EmbyUser? = null
+)
+
+data class EmbyUser(
+    val Id: String? = null,
+    val Name: String? = null
 )

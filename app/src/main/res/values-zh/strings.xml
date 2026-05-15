@@ -30,4 +30,19 @@
     <string name="removed_from_favorites">已取消收藏</string>
     <string name="sync_failed">同步失败</string>
     <string name="press_again_to_exit">再按一次退出</string>
+    <string name="login_error_empty">请输入服务器地址和用户名</string>
+    <string name="login_success">登录成功</string>
+    <string name="login_failed_no_token">登录失败：未获取到访问令牌</string>
+    <string name="login_error">登录错误: %1$s</string>
+    <string name="repeat_all">列表循环</string>
+    <string name="repeat_one">单曲循环</string>
+    <string name="shuffle">随机播放</string>
+    <string name="repeat_off">顺序播放</string>
+    <string name="confirm_delete">确认删除</string>
+    <string name="delete_msg">确定要永久删除 \"%1$s\" 吗？\n此操作不可撤销。</string>
+    <string name="batch_delete_msg">确定要永久删除选中的 %1$d 个项目吗？\n此操作不可撤销。</string>
+    <string name="deleted_success">已删除</string>
+    <string name="delete_failed">删除失败: %1$s</string>
+    <string name="sync_library_started">正在同步媒体库...</string>
+    <string name="syncing_library">正在同步媒体库…</string>
 </resources>

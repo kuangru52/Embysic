@@ -1,32 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:clipChildren="false"
+    android:clipToPadding="false">
 
-    <RelativeLayout
+    <!-- 唱片机总容器：确保内部组件绝对独立 -->
+    <FrameLayout
         android:id="@+id/rlDiscContainer"
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:clipChildren="false"
+        android:clipToPadding="false">
 
-        <FrameLayout
+        <!-- 1. 底部：半透明装饰环 (已缩小宽度) -->
+        <View
+            android:layout_width="310dp"
+            android:layout_height="310dp"
+            android:layout_gravity="center"
+            android:background="@drawable/bg_player_disc_ring" />
+
+        <!-- 2. 中间：旋转的唱片 (只有这个层级会转) -->
+        <RelativeLayout
             android:id="@+id/rlDisc"
             android:layout_width="300dp"
             android:layout_height="300dp"
-            android:layout_centerInParent="true">
+            android:layout_gravity="center">
 
             <ImageView
                 android:id="@+id/ivDisc"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:src="@drawable/disk"
-                android:scaleType="fitCenter" />
+                android:scaleType="fitCenter"
+                android:contentDescription="@null" />
 
             <androidx.cardview.widget.CardView
-                android:id="@+id/cvCover"
+                android:id="@+id/cvAlbumArt"
                 android:layout_width="200dp"
                 android:layout_height="200dp"
-                android:layout_gravity="center"
+                android:layout_centerInParent="true"
                 app:cardCornerRadius="100dp"
                 app:cardElevation="0dp">
 
@@ -34,21 +49,25 @@
                     android:id="@+id/ivFullCover"
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
-                    android:scaleType="centerCrop" />
+                    android:contentDescription="Album Art"
+                    android:scaleType="centerCrop"
+                    tools:src="@android:drawable/ic_menu_gallery" />
             </androidx.cardview.widget.CardView>
-        </FrameLayout>
+        </RelativeLayout>
 
+        <!-- 3. 顶部：绝对独立的唱针 (通过 translation 定位，永不跟随旋转) -->
         <ImageView
             android:id="@+id/ivNeedle"
-            android:layout_width="100dp"
-            android:layout_height="160dp"
-            android:layout_centerHorizontal="true"
-            android:layout_alignTop="@id/rlDisc"
-            android:layout_marginTop="-70dp"
-            android:translationX="60dp"
-            android:src="@drawable/styli2"
+            android:layout_width="132dp"
+            android:layout_height="161dp"
+            android:layout_gravity="center"
+            android:translationX="41dp"
+            android:translationY="-145dp"
+            android:contentDescription="@null"
             android:scaleType="fitCenter"
+            android:src="@drawable/styli2"
             android:transformPivotX="25dp"
             android:transformPivotY="25dp" />
-    </RelativeLayout>
+
+    </FrameLayout>
 </FrameLayout>

@@ -11,8 +11,8 @@ android {
         applicationId = "com.kuangru52.embysic"
         minSdk = 24
         targetSdk = 36
-        versionCode = 22
-        versionName = "1.45"
+        versionCode = 205
+        versionName = "2.05"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

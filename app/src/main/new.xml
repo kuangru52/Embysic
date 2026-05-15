@@ -1,0 +1,10 @@
+<FrameLayout id="rlDiscContainer"> <!-- 唱盘总容器 -->
+
+    <RelativeLayout id="rlDisc"> <!-- 真正旋转的部分 -->
+        <ImageView id="ivDiscBackground" /> <!-- 黑胶背景 -->
+        <CardView id="cvAlbumArt" />      <!-- 封面图 -->
+    </RelativeLayout>
+
+    <ImageView id="ivNeedle" /> <!-- 唱针：它在旋转容器之外，只做摆动 -->
+
+</FrameLayout>

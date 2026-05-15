@@ -1,638 +1,737 @@
 package com.kuangru52.embysic
 
 import android.annotation.SuppressLint
+import android.app.Dialog
+import android.content.DialogInterface
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.RectF
+import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ImageButton
-import android.widget.ImageView
-import android.widget.SeekBar
-import android.widget.TextView
-import androidx.annotation.OptIn
-import androidx.core.content.edit
-import androidx.core.graphics.toColorInt
-import androidx.core.net.toUri
+import android.view.WindowManager
+import androidx.annotation.AttrRes
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
-import androidx.fragment.app.DialogFragment
-import androidx.lifecycle.lifecycleScope
+import androidx.core.content.edit
+import androidx.core.net.toUri
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.ProgressBar
+import android.widget.SeekBar
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.LinearSmoothScroller
-import androidx.recyclerview.widget.RecyclerView
 import coil.ImageLoader
 import coil.load
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import jp.wasabeef.transformers.coil.BlurTransformation
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 import java.util.Locale
-import java.util.concurrent.ConcurrentHashMap
 
-class PlayerDialogFragment : DialogFragment() {
+@UnstableApi
+class PlayerDialogFragment : BottomSheetDialogFragment() {
 
-    private var player: Player? = null
-    private var apiService: EmbyApiService? = null
-    private val neteaseApi = RetrofitClient.neteaseApi
-    
+    private val neteaseApi: NeteaseApiService by lazy {
+        val okHttpClient = okhttp3.OkHttpClient.Builder()
+            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
+            .addInterceptor { chain ->
+                val request = chain.request()
+                val newRequest = request.newBuilder()
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .header("Referer", "https://music.163.com/")
+                    .header("Cookie", "os=pc; appver=2.10.12; osver=Microsoft-Windows-10-Professional-build-19045-64bit; MUSIC_U=; __remember_me=true")
+                    .build()
+                chain.proceed(newRequest)
+            }
+            .build()
+            
+        Retrofit.Builder()
+            .baseUrl("https://music.163.com/")
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(NeteaseApiService::class.java)
+    }
+
+    private lateinit var tvPlayModeHint: TextView
+    private lateinit var ivCover: ImageView
     private lateinit var ivBlurBackground: ImageView
-    private lateinit var ivAlbumArt: ImageView
-    private lateinit var ivNeedle: ImageView
     private lateinit var tvTitle: TextView
     private lateinit var tvArtist: TextView
+    private lateinit var btnPlayMode: ImageView
+    private lateinit var btnPlayPause: ImageView
+    private lateinit var seekBar: SeekBar
     private lateinit var tvCurrentTime: TextView
     private lateinit var tvTotalTime: TextView
-    private lateinit var seekBar: SeekBar
-    private lateinit var btnPlayPause: ImageButton
-    private lateinit var btnPrev: ImageButton
-    private lateinit var btnNext: ImageButton
-    private lateinit var btnPlayMode: ImageButton
-    private lateinit var btnMore: ImageButton
     private lateinit var tvAudioQuality: TextView
-    private lateinit var tvPlayModeHint: TextView
-    private lateinit var rlDisc: View
+    private lateinit var btnPrev: ImageView
+    private lateinit var btnNext: ImageView
+    private lateinit var btnMore: ImageView
+    private lateinit var bottomTouchArea: View
+    private lateinit var volumeDotView: VolumeDotView
     private lateinit var rlDiscContainer: View
-    private lateinit var rvLyrics: RecyclerView
-    
-    private val lyricsAdapter = LyricsAdapter { timeMs ->
-        player?.seekTo(timeMs)
+    private lateinit var rlDisc: View
+    private lateinit var cvAlbumArt: View
+    private lateinit var ivNeedle: ImageView
+    private var discRotation = 0f
+    private val discRotationHandler = Handler(Looper.getMainLooper())
+    private val discRotationRunnable = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            if (p.isPlaying) {
+                discRotation = (discRotation + 0.5f) % 360f
+                rlDisc.rotation = discRotation
+            }
+            discRotationHandler.postDelayed(this, 30)
+        }
     }
-    private val lyricsCache = ConcurrentHashMap<String, List<LrcLine>>()
-    
+    private lateinit var rvLyrics: RecyclerView
+    private lateinit var pbDownload: ProgressBar
+    private lateinit var llVolumeHint: View
+    private lateinit var sbVolumeHint: SeekBar
+    private val hideVolumeHintRunnable = Runnable { 
+        llVolumeHint.animate()
+            .alpha(0f)
+            .setDuration(300)
+            .withEndAction { 
+                llVolumeHint.visibility = View.INVISIBLE // 使用 INVISIBLE 保持占位，避免布局跳变
+                llVolumeHint.alpha = 1f
+            }
+            .start()
+    }
+
+    private val lyricsAdapter = LyricsAdapter { _ -> hideLyrics() }
+    private var player: Player? = null
+    fun setPlayer(player: Player) {
+        this.player = player
+    }
+
     private val handler = Handler(Looper.getMainLooper())
-    private var discAnimator: android.animation.ObjectAnimator? = null
-    private var lastActiveLineIndex = -1
-    
-    private var clickCount = 0
-    private var lastClickTime = 0L
-    private var isSwitchingMode = false
-    
-    private var pendingPlayMode: String? = null
-    private var playModeJob: Job? = null
+    private var isDragging = false
+    private var isUserScrollingLyrics = false
+    private val resumeAutoScrollRunnable = Runnable { isUserScrollingLyrics = false }
+    private var apiService: EmbyApiService? = null
 
-    private val playerListener = object : Player.Listener {
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            if (isSwitchingMode) return
-            Log.d("PlayerDialog", "onMediaItemTransition: ${mediaItem?.mediaMetadata?.title}")
-            
-            // 切歌时针尖动画：抬起 -> 切换 -> 放下
-            ivNeedle.animate()
-                .rotation(-30f)
-                .setDuration(200)
-                .withEndAction {
-                    updateUI()
-                    // 如果播放器状态不是 IDLE 且有项目，则放下磁针
-                    if (player?.playbackState != Player.STATE_IDLE && (player?.mediaItemCount ?: 0) > 0) {
-                        updateNeedle(player?.isPlaying == true)
-                    }
+    companion object {
+        private val lyricsCache = mutableMapOf<String, List<LrcLine>>()
+    }
+
+    private val downloadProgressListener = { itemId: String, progressPercent: Int ->
+        val currentId = player?.currentMediaItem?.mediaId
+        if (itemId == currentId) {
+            handler.post {
+                if (progressPercent == 1) {
+                    pbDownload.isIndeterminate = true
+                    pbDownload.visibility = View.VISIBLE
+                } else if (progressPercent >= 100) {
+                    pbDownload.isIndeterminate = false
+                    pbDownload.progress = 100
+                    handler.postDelayed({ pbDownload.visibility = View.GONE }, 2000)
+                } else {
+                    pbDownload.isIndeterminate = false
+                    pbDownload.progress = progressPercent
+                    pbDownload.visibility = View.VISIBLE
                 }
-                .start()
-        }
-
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isSwitchingMode) return
-            Log.d("PlayerDialog", "onIsPlayingChanged: $isPlaying")
-            updatePlayPauseButton(isPlaying)
-            updateAnimationState(isPlaying, player?.playbackState ?: Player.STATE_IDLE)
-            updateNeedle(isPlaying)
-        }
-
-        override fun onPlaybackStateChanged(state: Int) {
-            if (isSwitchingMode) return
-            Log.d("PlayerDialog", "onPlaybackStateChanged: $state")
-            player?.let { 
-                updatePlayPauseButton(it.isPlaying)
-                updateAnimationState(it.isPlaying, state)
             }
-            if (state == Player.STATE_READY) {
-                val duration = player?.duration ?: 0L
-                tvTotalTime.text = formatTime(duration)
-                seekBar.max = duration.toInt()
-                updateUI() // 状态就绪后再次尝试更新UI
-            }
-        }
-
-        override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
-            Log.d("PlayerDialog", "onMediaMetadataChanged: ${mediaMetadata.title}")
-            updateUI()
-        }
-
-        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-            updateUI()
         }
     }
 
     private val updateProgressAction = object : Runnable {
         override fun run() {
-            player?.let { p ->
-                if (p.playbackState != Player.STATE_IDLE && p.playbackState != Player.STATE_ENDED) {
-                    val currentPos = p.currentPosition
-                    seekBar.progress = currentPos.toInt()
-                    tvCurrentTime.text = formatTime(currentPos)
-                    
-                    if (rvLyrics.isVisible) {
-                        val activeIndex = lyricsAdapter.updateActiveLine(currentPos)
-                        if (activeIndex != -1 && activeIndex != lastActiveLineIndex) {
-                            lastActiveLineIndex = activeIndex
-                            rvLyrics.smoothScrollToPosition(activeIndex)
-                        }
-                    }
-
-                    // v1.45: 优化播放模式切换卡顿。如果存在待处理模式，在歌曲结束前 2 秒自动触发静默切换
-                    if (pendingPlayMode != null) {
-                        val duration = p.duration
-                        if (duration > 0) {
-                            if (duration - currentPos < 2000) {
-                                Log.d("PlayerDialog", "Auto-applying pending mode: $pendingPlayMode")
-                                checkAndApplyPendingPlayMode()
-                            }
-                        }
-                    }
-                }
+            val p = player ?: return
+            if (p.isPlaying) {
+                updateUIProgress(p)
             }
-            handler.postDelayed(this, 500)
+            handler.postDelayed(this, 1000)
         }
     }
 
-    private fun startRotation() {
-        if (discAnimator == null) {
-            discAnimator = android.animation.ObjectAnimator.ofFloat(rlDisc, "rotation", 0f, 360f).apply {
-                duration = 20000
-                repeatCount = android.animation.ValueAnimator.INFINITE
-                interpolator = android.view.animation.LinearInterpolator()
-            }
+    override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
+        val dialog = super.onCreateDialog(savedInstanceState) as BottomSheetDialog
+        dialog.behavior.apply {
+            state = BottomSheetBehavior.STATE_EXPANDED
+            skipCollapsed = true
+            isHideable = true
+            isDraggable = true
         }
-        if (discAnimator?.isStarted == false) {
-            discAnimator?.start()
-        } else if (discAnimator?.isPaused == true) {
-            discAnimator?.resume()
+        dialog.window?.let { window ->
+            window.setWindowAnimations(R.style.PlayerDialogAnimation)
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+            WindowCompat.setDecorFitsSystemWindows(window, false)
         }
-    }
-
-    private fun stopRotation() {
-        discAnimator?.pause()
-    }
-
-    private val hideHintRunnable = Runnable {
-        tvPlayModeHint.visibility = View.GONE
-    }
-
-    private val downloadProgressListener = { songId: String, progress: Int ->
-        if (isAdded && player?.currentMediaItem?.mediaId == songId) {
-            view?.post {
-                if (progress < 100) {
-                    tvAudioQuality.text = "正在下载 $progress%"
-                } else {
-                    updateAudioQualityText()
-                }
-            }
-        }
-    }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        setStyle(STYLE_NORMAL, R.style.FullScreenDialog)
-        apiService = RetrofitClient.getEmbyApiService(requireContext())
-    }
-
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        val view = inflater.inflate(R.layout.fragment_player_full, container, false)
-        initViews(view)
-        setupRecyclerView()
-        return view
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-        Log.d("PlayerDialog", "onViewCreated")
-        (activity as? HomeActivity)?.mediaController?.let { 
-            Log.d("PlayerDialog", "onViewCreated: Found MediaController")
-            setPlayer(it) 
-        }
-        syncStateWithPlayer()
-    }
-
-    private fun syncStateWithPlayer() {
-        val p = player ?: run {
-            Log.w("PlayerDialog", "syncStateWithPlayer: player is null")
-            return
-        }
-        if (view == null) return
-        
-        Log.d("PlayerDialog", "syncStateWithPlayer: isPlaying=${p.isPlaying}, mediaItem=${p.currentMediaItem?.mediaMetadata?.title}")
-        
-        updateUI()
-        updatePlayModeIcon()
-        updatePlayPauseButton(p.isPlaying)
-        updateNeedle(p.isPlaying)
-        updateAnimationState(p.isPlaying, p.playbackState)
-        
-        val duration = p.duration
-        if (duration > 0) {
-            tvTotalTime.text = formatTime(duration)
-            seekBar.max = duration.toInt()
-        }
-        
-        handler.removeCallbacks(updateProgressAction)
-        handler.post(updateProgressAction)
+        return dialog
     }
 
     override fun onStart() {
         super.onStart()
-        dialog?.window?.apply {
-            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            setBackgroundDrawable(null)
-            
-            // 关键：启用边缘到边缘布局
-            WindowCompat.setDecorFitsSystemWindows(this, false)
-            
-            // 设置沉浸式状态栏和导航栏图标颜色
-            WindowInsetsControllerCompat(this, decorView).apply {
-                // 播放页通常背景较深，强制使用白色图标（LightStatusBars = false）
-                isAppearanceLightStatusBars = false 
-                isAppearanceLightNavigationBars = false
-            }
+        val dialog = dialog as? BottomSheetDialog
+        dialog?.let {
+            val bottomSheet = it.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
+            bottomSheet?.let { sheet ->
+                sheet.layoutParams.height = ViewGroup.LayoutParams.MATCH_PARENT
+                sheet.setBackgroundColor(Color.TRANSPARENT)
+                
+                sheet.post {
+                    val dm = resources.displayMetrics
+                    val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
+                    val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
+                    val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
+                    val px10dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, dm)
 
-            // v1.45: 将当前播放页的位置同步给 HomeActivity 的 LiquidGlass 渲染
-            // 播放页是全屏覆盖，但在 R 角处我们需要背景容器配合渲染
-            val width = resources.displayMetrics.widthPixels.toFloat()
-            val height = resources.displayMetrics.heightPixels.toFloat()
-            val rect = RectF(0f, 0f, width, height)
-            (activity as? HomeActivity)?.applyDialogEffect(
-                rect = rect,
-                radius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, resources.displayMetrics),
-                refractionAmount = -60f,
-                refractionHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, resources.displayMetrics),
-                blurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 4f, resources.displayMetrics)
-            )
-        }
-        Log.d("PlayerDialog", "onStart")
-        // 再次兜底检查，确保控制器连接
-        if (player == null) {
-            (activity as? HomeActivity)?.mediaController?.let { 
-                Log.d("PlayerDialog", "onStart: Found MediaController in HomeActivity")
-                setPlayer(it) 
+                    val dialogLoc = IntArray(2)
+                    sheet.getLocationOnScreen(dialogLoc)
+                    
+                    val dialogRect = RectF(
+                        dialogLoc[0].toFloat(),
+                        dialogLoc[1].toFloat(),
+                        (dialogLoc[0] + sheet.width).toFloat(),
+                        (dialogLoc[1] + sheet.height).toFloat()
+                    )
+                    (activity as? HomeActivity)?.applyDialogEffect(dialogRect, px38dp, pxNeg60dp, px20dpRefHeight, px10dpBlurRadius)
+                }
+            }
+            
+            it.window?.let { window ->
+                window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+                window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+                
+                val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+                val controller = WindowInsetsControllerCompat(window, window.decorView)
+                controller.isAppearanceLightStatusBars = !isDark
+                controller.isAppearanceLightNavigationBars = !isDark
             }
         }
-        syncStateWithPlayer()
     }
 
-    override fun onDestroyView() {
-        (activity as? HomeActivity)?.clearDialogEffect()
-        handler.removeCallbacks(updateProgressAction)
-        discAnimator?.cancel()
-        SongDownloader.removeProgressListener(downloadProgressListener)
-        super.onDestroyView()
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
+        val view = inflater.inflate(R.layout.fragment_player_dialog, container, false)
+        initViews(view)
+        setupPlayer()
+        initApiService()
+        SongDownloader.addProgressListener(downloadProgressListener)
+        
+        val navigationBarSpacer = view.findViewById<View>(R.id.navigationBarSpacer)
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            navigationBarSpacer.layoutParams.height = bars.bottom
+            navigationBarSpacer.requestLayout()
+            insets
+        }
+        
+        return view
     }
 
-    private fun initViews(v: View) {
-        ivBlurBackground = v.findViewById(R.id.ivBlurBackground)
-        ivAlbumArt = v.findViewById(R.id.ivFullCover)
-        ivNeedle = v.findViewById(R.id.ivNeedle)
-        tvTitle = v.findViewById(R.id.tvFullTitle)
-        tvArtist = v.findViewById(R.id.tvFullArtist)
-        tvCurrentTime = v.findViewById(R.id.tvCurrentTime)
-        tvTotalTime = v.findViewById(R.id.tvTotalTime)
-        seekBar = v.findViewById(R.id.seekBar)
-        btnPlayPause = v.findViewById(R.id.btnPlayPauseFull)
-        btnPrev = v.findViewById(R.id.btnPrev)
-        btnNext = v.findViewById(R.id.btnNext)
-        btnPlayMode = v.findViewById(R.id.btnPlayMode)
-        btnMore = v.findViewById(R.id.btnMore)
-        tvAudioQuality = v.findViewById(R.id.tvAudioQuality)
-        tvPlayModeHint = v.findViewById(R.id.tvPlayModeHint)
-        rlDisc = v.findViewById(R.id.rlDisc)
-        rlDiscContainer = v.findViewById(R.id.rlDiscContainer)
-        rvLyrics = v.findViewById(R.id.rvLyrics)
+    private fun initApiService() {
+        val prefs = requireContext().getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)
+        val serverUrl = prefs.getString("server_url", "") ?: ""
+        if (serverUrl.isNotEmpty()) {
+            val retrofit = Retrofit.Builder()
+                .baseUrl(if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/")
+                .addConverterFactory(GsonConverterFactory.create())
+                .build()
+            apiService = retrofit.create(EmbyApiService::class.java)
+        }
+    }
 
-        v.findViewById<View>(R.id.contentContainer).setOnClickListener {
+    private fun initViews(view: View) {
+        ivCover = view.findViewById(R.id.ivAlbumArt)
+        ivBlurBackground = view.findViewById(R.id.ivBlurBackground)
+        tvTitle = view.findViewById(R.id.tvTitle)
+        tvArtist = view.findViewById(R.id.tvArtist)
+        btnPlayMode = view.findViewById(R.id.btnPlayMode)
+        btnPlayPause = view.findViewById(R.id.btnPlayPause)
+        seekBar = view.findViewById(R.id.seekBar)
+        tvCurrentTime = view.findViewById(R.id.tvCurrentTime)
+        tvTotalTime = view.findViewById(R.id.tvTotalTime)
+        tvAudioQuality = view.findViewById(R.id.tvAudioQuality)
+        tvPlayModeHint = view.findViewById(R.id.tvPlayModeHint)
+        btnPrev = view.findViewById(R.id.btnPrev)
+        btnNext = view.findViewById(R.id.btnNext)
+        btnMore = view.findViewById(R.id.btnMore)
+        bottomTouchArea = view.findViewById(R.id.bottomTouchArea)
+        volumeDotView = view.findViewById(R.id.volumeDotView)
+        rlDiscContainer = view.findViewById(R.id.rlDiscContainer)
+        rlDisc = view.findViewById(R.id.rlDisc)
+        cvAlbumArt = view.findViewById(R.id.cvAlbumArt)
+        ivNeedle = view.findViewById(R.id.ivNeedle)
+        rvLyrics = view.findViewById(R.id.rvLyrics)
+        pbDownload = view.findViewById(R.id.pbDownload)
+        sbVolumeHint = view.findViewById(R.id.sbVolumeHint)
+        llVolumeHint = view.findViewById(R.id.llVolumeHint)
+
+        ivNeedle.rotation = -25f // 初始设置为暂停时的角度
+
+        rvLyrics.layoutManager = LinearLayoutManager(context)
+        rvLyrics.adapter = lyricsAdapter
+
+        btnPlayPause.setOnClickListener {
+            player?.let { if (it.isPlaying) it.pause() else it.play() }
+        }
+        btnPrev.setOnClickListener { 
+            player?.seekToPrevious()
+            player?.play()
+        }
+        btnNext.setOnClickListener { 
+            player?.seekToNext()
+            player?.play()
+        }
+        
+        btnPlayMode.setOnClickListener { togglePlayMode() }
+        btnMore.setOnClickListener { toggleFavorite() }
+        rlDisc.setOnClickListener { showLyrics() }
+
+        var qualityClickCount = 0
+        var lastClickTime = 0L
+        tvAudioQuality.setOnClickListener {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastClickTime < 500) {
+                qualityClickCount++
+            } else {
+                qualityClickCount = 1
+            }
+            lastClickTime = currentTime
+            
+            if (qualityClickCount >= 5) {
+                qualityClickCount = 0
+                MediaItemUtils.isForceDirectMode = !MediaItemUtils.isForceDirectMode
+                
+                // 立即重新载入当前歌曲以应用源码模式
+                player?.let { p ->
+                    val currentPos = p.currentPosition
+                    val currentItem = p.currentMediaItem ?: return@let
+                    val extras = currentItem.mediaMetadata.extras ?: return@let
+                    val itemId = extras.getString("item_id") ?: return@let
+                    
+                    lifecycleScope.launch {
+                        try {
+                            val prefs = requireContext().getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)
+                            val serverUrl = prefs.getString("server_url", "") ?: ""
+                            val accessToken = prefs.getString("access_token", "") ?: ""
+                            val userId = prefs.getString("user_id", "") ?: ""
+                            val auth = "MediaBrowser Token=\"$accessToken\""
+                            
+                            val embyItem = apiService?.getItem(userId, itemId, auth) ?: return@launch
+                            
+                            val newItem = MediaItemUtils.buildMediaItem(
+                                embyItem, serverUrl, accessToken, userId,
+                                forceDirect = MediaItemUtils.isForceDirectMode
+                            )
+                            
+                            p.setMediaItem(newItem)
+                            p.seekTo(currentPos)
+                            p.prepare()
+                            p.play()
+                            
+                            // 立即刷新 UI 显示源码信息
+                            updateMetadata(newItem)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+            }
+        }
+        
+        val llTitleContainer = view.findViewById<View>(R.id.llTitleContainer)
+        llTitleContainer.setOnClickListener {
+            val mediaId = player?.currentMediaItem?.mediaId ?: return@setOnClickListener
+            (activity as? HomeActivity)?.let { activity ->
+                dismiss()
+                val fragment = LibraryFragment().apply {
+                    arguments = Bundle().apply {
+                        putString("target_item_id", mediaId)
+                    }
+                }
+                activity.replaceFragment(fragment, "library_locate")
+            }
+        }
+        
+        var startX = 0f
+        var startVolume = 0
+        @SuppressLint("ClickableViewAccessibility")
+        bottomTouchArea.setOnTouchListener { v, event ->
+            val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return@setOnTouchListener false
+            val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+            val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+            
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    startX = event.x
+                    startVolume = currentVolume
+                    sbVolumeHint.max = maxVolume
+                    sbVolumeHint.progress = currentVolume
+                    handler.removeCallbacks(hideVolumeHintRunnable)
+                    llVolumeHint.alpha = 1f
+                    llVolumeHint.visibility = View.VISIBLE
+                    volumeDotView.setTouchPosition(event.x, event.y, true)
+                    volumeDotView.animate().alpha(1f).setDuration(200).start()
+                    
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val width = v.width
+                    val deltaX = event.x - startX
+                    val sensitivityWidth = width / 3f
+                    val volumeDelta = (deltaX / sensitivityWidth * maxVolume).toInt()
+                    val targetVolume = (startVolume + volumeDelta).coerceIn(0, maxVolume)
+                    
+                    audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVolume, 0)
+                    sbVolumeHint.progress = targetVolume
+                    volumeDotView.setTouchPosition(event.x, event.y, true)
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    handler.postDelayed(hideVolumeHintRunnable, 2000)
+                    volumeDotView.setTouchPosition(event.x, event.y, false)
+                    volumeDotView.animate().alpha(0f).setDuration(200).start()
+                    
+                    true
+                }
+                else -> false
+            }
+        }
+        
+        val contentContainer = view.findViewById<View>(R.id.contentContainer)
+        contentContainer.setOnClickListener {
             if (rvLyrics.isVisible) hideLyrics() else showLyrics()
         }
 
-        tvTitle.setOnClickListener {
-            val itemId = player?.currentMediaItem?.mediaId ?: return@setOnClickListener
-            dismiss()
-            (activity as? HomeActivity)?.replaceFragment(LibraryFragment().apply {
-                arguments = Bundle().apply { putString("target_item_id", itemId) }
-            }, "Library")
-        }
-
-        tvArtist.setOnClickListener {
-            val metadata = player?.currentMediaItem?.mediaMetadata ?: return@setOnClickListener
-            val artist = metadata.artist?.toString()
-            val extras = metadata.extras
-            val artistId = extras?.getString("artist_id")
-            
-            dismiss()
-            if (artistId != null) {
-                (activity as? HomeActivity)?.replaceFragment(LibraryFragment().apply {
-                    arguments = Bundle().apply {
-                        putString("artist_id", artistId)
-                        putString("artist_name", artist)
-                    }
-                }, "Library")
-            } else {
-                val itemId = player?.currentMediaItem?.mediaId ?: return@setOnClickListener
-                (activity as? HomeActivity)?.replaceFragment(LibraryFragment().apply {
-                    arguments = Bundle().apply { putString("target_item_id", itemId) }
-                }, "Library")
+        rvLyrics.setOnClickListener { hideLyrics() }
+        
+        rvLyrics.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    isUserScrollingLyrics = true
+                    handler.removeCallbacks(resumeAutoScrollRunnable)
+                } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
+                    handler.removeCallbacks(resumeAutoScrollRunnable)
+                    handler.postDelayed(resumeAutoScrollRunnable, 3000)
+                }
             }
-        }
+        })
 
         seekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 if (fromUser) tvCurrentTime.text = formatTime(progress.toLong())
             }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                handler.removeCallbacks(updateProgressAction)
-            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) { isDragging = true }
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                player?.seekTo(seekBar?.progress?.toLong() ?: 0L)
-                handler.post(updateProgressAction)
+                val p = player ?: return
+                val posMs = seekBar?.progress?.toLong() ?: 0L
+                p.seekTo(posMs)
+                p.play()
+                handler.postDelayed({ isDragging = false; updateUIProgress(p) }, 300)
             }
         })
-
-        btnPlayPause.setOnClickListener {
-            Log.d("PlayerDialog", "PlayPause clicked. Player: $player, isPlaying: ${player?.isPlaying}")
-            player?.let { if (it.isPlaying) it.pause() else it.play() }
-        }
-
-        btnPrev.setOnClickListener {
-            Log.d("PlayerDialog", "Prev clicked. Player available: ${player != null}")
-            player?.let { p ->
-                if (pendingPlayMode != null) {
-                    checkAndApplyPendingPlayMode(skipDirection = -1)
-                } else {
-                    // 使用 seekToPrevious() 它会自动处理逻辑，如果不可用则手动兜底
-                    if (p.hasPreviousMediaItem() || p.currentPosition > 5000) {
-                        p.seekToPrevious()
-                    } else if (p.mediaItemCount > 0) {
-                        // 循环到最后一首
-                        p.seekTo(p.mediaItemCount - 1, 0)
-                    }
-                    p.play()
-                }
-            }
-        }
-
-        btnNext.setOnClickListener {
-            Log.d("PlayerDialog", "Next clicked. Player available: ${player != null}")
-            player?.let { p ->
-                if (pendingPlayMode != null) {
-                    checkAndApplyPendingPlayMode(skipDirection = 1)
-                } else {
-                    if (p.hasNextMediaItem()) {
-                        p.seekToNextMediaItem()
-                    } else if (p.mediaItemCount > 0) {
-                        // 循环到第一首
-                        p.seekTo(0, 0)
-                    }
-                    p.play()
-                }
-            }
-        }
-
-        btnPlayMode.setOnClickListener { togglePlayMode() }
-        btnMore.setOnClickListener { toggleFavorite() }
-        rlDisc.setOnClickListener { showLyrics() }
-
-        ivNeedle.rotation = -30f
-        
-        tvAudioQuality.setOnClickListener {
-            if (isSwitchingMode) return@setOnClickListener
-            val now = System.currentTimeMillis()
-            if (now - lastClickTime < 500) {
-                clickCount++
-            } else {
-                clickCount = 1
-            }
-            lastClickTime = now
-
-            if (clickCount >= 5) {
-                clickCount = 0
-                val p = player ?: return@setOnClickListener
-                val currentItem = p.currentMediaItem ?: return@setOnClickListener
-                
-                // 标记正在切换，防止 Listener 干扰
-                isSwitchingMode = true
-                
-                val itemId = currentItem.mediaId
-                val currentPos = p.currentPosition
-                val wasPlaying = p.isPlaying
-                
-                MediaItemUtils.isForceDirectMode = !MediaItemUtils.isForceDirectMode
-                val modeStr = if (MediaItemUtils.isForceDirectMode) "源码输出" else "转码播放"
-                android.widget.Toast.makeText(requireContext(), "已切换至 $modeStr", android.widget.Toast.LENGTH_SHORT).show()
-                
-                lifecycleScope.launch {
-                    try {
-                        val prefs = requireContext().getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
-                        val serverUrl = prefs.getString("server_url", "") ?: ""
-                        val accessToken = prefs.getString("access_token", "") ?: ""
-                        val userId = prefs.getString("user_id", "") ?: ""
-                        val auth = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
-                        
-                        // 获取最新的歌曲信息（包含可能的源码地址）
-                        val song = apiService?.getItem(userId, itemId, auth)
-                        if (song != null) {
-                            val newMediaItem = MediaItemUtils.buildMediaItem(song, serverUrl, accessToken, userId)
-                            
-                            val ph = player // 再次检查
-                            if (ph != null) {
-                                // 使用单条原子命令：替换项目并定位
-                                ph.setMediaItem(newMediaItem, currentPos)
-                                ph.prepare()
-                                if (wasPlaying) ph.play()
-                                
-                                // 立即更新一次 UI，让标签变化
-                                updateUI()
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("PlayerDialog", "Failed to switch mode", e)
-                    } finally {
-                        // 稍微延迟释放开关，等待 Media3 内部消息循环处理掉中间状态
-                        handler.postDelayed({
-                            isSwitchingMode = false
-                            // 确保 UI 最终状态正确
-                            updateUI()
-                        }, 500)
-                    }
-                }
-            }
-        }
-        
-        SongDownloader.addProgressListener(downloadProgressListener)
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    private fun setupRecyclerView() {
-        rvLyrics.layoutManager = object : LinearLayoutManager(context) {
-            override fun smoothScrollToPosition(recyclerView: RecyclerView, state: RecyclerView.State?, position: Int) {
-                val scroller = object : LinearSmoothScroller(context) {
-                    override fun getVerticalSnapPreference(): Int = SNAP_TO_START
-                    
-                    override fun calculateDtToFit(viewStart: Int, viewEnd: Int, boxStart: Int, boxEnd: Int, snapPreference: Int): Int {
-                        // 使目标 item 居中显示
-                        return (boxStart + (boxEnd - boxStart) / 2) - (viewStart + (viewEnd - viewStart) / 2)
-                    }
-
-                    override fun calculateSpeedPerPixel(displayMetrics: android.util.DisplayMetrics): Float {
-                        return 150f / displayMetrics.densityDpi // 控制滚动速度
-                    }
-                }
-                scroller.targetPosition = position
-                startSmoothScroll(scroller)
-            }
-        }
-        rvLyrics.adapter = lyricsAdapter
-        
-        // 使用点击监听器，但通过点击空白处隐藏歌词
-        rvLyrics.setOnTouchListener { v, event ->
-            if (event.action == android.view.MotionEvent.ACTION_UP) {
-                val child = rvLyrics.findChildViewUnder(event.x, event.y)
-                if (child == null) {
-                    hideLyrics()
-                    v.performClick()
-                    return@setOnTouchListener true
-                }
-            }
-            false
-        }
+    private val hidePlayModeHintRunnable = Runnable {
+        tvPlayModeHint.animate().alpha(0f).setDuration(300).withEndAction {
+            tvPlayModeHint.visibility = View.INVISIBLE
+            tvPlayModeHint.alpha = 1f
+        }.start()
     }
 
-    fun setPlayer(p: Player) {
-        if (this.player == p) {
-            Log.d("PlayerDialog", "setPlayer: already set")
-            return
-        }
-        this.player?.removeListener(playerListener)
-        this.player = p
-        p.addListener(playerListener)
-        
-        Log.d("PlayerDialog", "setPlayer called. isPlaying: ${p.isPlaying}, mediaItem: ${p.currentMediaItem?.mediaMetadata?.title}")
-        syncStateWithPlayer()
-    }
-
-    private fun updateUI() {
+    private fun togglePlayMode() {
         val p = player ?: return
-        val mediaItem = p.currentMediaItem
-        if (mediaItem == null) {
-            Log.w("PlayerDialog", "updateUI: currentMediaItem is null")
-            return
+        val modeText = when (p.repeatMode) {
+            Player.REPEAT_MODE_OFF -> {
+                p.repeatMode = Player.REPEAT_MODE_ALL
+                p.shuffleModeEnabled = false
+                getString(R.string.repeat_all)
+            }
+            Player.REPEAT_MODE_ALL -> {
+                if (p.shuffleModeEnabled) {
+                    p.repeatMode = Player.REPEAT_MODE_ONE
+                    p.shuffleModeEnabled = false
+                    getString(R.string.repeat_one)
+                } else {
+                    p.shuffleModeEnabled = true
+                    getString(R.string.shuffle)
+                }
+            }
+            Player.REPEAT_MODE_ONE -> {
+                p.repeatMode = Player.REPEAT_MODE_OFF
+                p.shuffleModeEnabled = false
+                getString(R.string.repeat_off)
+            }
+            else -> ""
         }
+        updatePlayModeIcon()
         
-        val metadata = mediaItem.mediaMetadata
-        tvTitle.text = metadata.title ?: "未知曲名"
-        tvArtist.text = metadata.artist ?: "未知歌手"
-        
-        Log.d("PlayerDialog", "Updating UI for: ${metadata.title}")
-
-        val artworkUri = metadata.artworkUri
-        ivAlbumArt.load(artworkUri) {
-            crossfade(true)
-            placeholder(R.drawable.cd)
-            error(R.drawable.cd)
-            listener(onError = { _, _ ->
-                Log.d("PlayerDialog", "Artwork load failed, searching Netease")
-                searchNeteaseCover(mediaItem.mediaId, metadata.title?.toString(), metadata.artist?.toString())
-            })
-        }
-        
-        if (artworkUri != null) {
-            updateBlurBackground(artworkUri)
-        } else {
-            searchNeteaseCover(mediaItem.mediaId, metadata.title?.toString(), metadata.artist?.toString())
-        }
-        
-        updateAudioQualityText()
-        
-        val extras = metadata.extras
-        val isFav = extras?.getBoolean("is_favorite", false) ?: false
-        updateFavoriteButton(isFav)
-        
-        // 预加载歌词
-        preloadLyrics(
-            mediaItem.mediaId, 
-            metadata.title?.toString(), 
-            metadata.artist?.toString()
-        )
+        tvPlayModeHint.text = modeText
+        tvPlayModeHint.visibility = View.VISIBLE
+        tvPlayModeHint.alpha = 1f
+        handler.removeCallbacks(hidePlayModeHintRunnable)
+        handler.postDelayed(hidePlayModeHintRunnable, 2000)
     }
 
-    private fun updateAudioQualityText() {
-        val mediaItem = player?.currentMediaItem ?: return
-        val itemId = mediaItem.mediaId
-        val extras = mediaItem.mediaMetadata.extras
-        val isTranscoding = extras?.getBoolean("is_transcoding", false) ?: false
-        val codec = extras?.getString("codec") ?: ""
-        val bitrate = extras?.getInt("bitrate", 0) ?: 0
-
-        if (SongDownloader.isDownloaded(itemId)) {
-            tvAudioQuality.text = "已下载"
-            tvAudioQuality.setTextColor("#B3FFFFFF".toColorInt())
+    private fun updatePlayModeIcon() {
+        val p = player ?: return
+        if (p.shuffleModeEnabled) {
+            btnPlayMode.setImageResource(R.drawable.ic_shuffle_vector)
         } else {
-            if (!isTranscoding) {
-                // 源码播放模式：添加黄色警告图标和提示文字
-                tvAudioQuality.text = "⚠️ 源码播放: $codec ${bitrate / 1000}kbps"
-                tvAudioQuality.setTextColor("#FFD700".toColorInt()) // 黄色/金色
-            } else {
-                tvAudioQuality.text = if (bitrate > 0) "正在转码: $codec ${bitrate / 1000}kbps" else ""
-                tvAudioQuality.setTextColor("#B3FFFFFF".toColorInt())
+            when (p.repeatMode) {
+                Player.REPEAT_MODE_ONE -> btnPlayMode.setImageResource(R.drawable.ic_repeat_one_vector)
+                else -> btnPlayMode.setImageResource(R.drawable.ic_repeat_vector)
             }
         }
     }
 
-    private fun updatePlayPauseButton(isPlaying: Boolean) {
-        btnPlayPause.setImageResource(if (isPlaying) R.drawable.ic_pause_vector else R.drawable.ic_play_vector)
+    private fun showVolumeDialog() {
+        val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
+        val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
+        val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
+
+        val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_volume, null)
+        val volSeekBar = dialogView.findViewById<SeekBar>(R.id.volumeSeekBar)
+        volSeekBar.max = maxVolume
+        volSeekBar.progress = currentVolume
+
+        val dialog = AlertDialog.Builder(requireContext(), R.style.Theme_Embysic_Dialog)
+            .setView(dialogView)
+            .create()
+
+        volSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                if (fromUser) audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, progress, 0)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        dialog.show()
+        
+        // 玻璃效果应用到音量弹窗
+        dialogView.post {
+            val dm = resources.displayMetrics
+            val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
+            val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
+            
+            val loc = IntArray(2)
+            dialogView.getLocationOnScreen(loc)
+            val rect = RectF(
+                loc[0].toFloat(), 
+                loc[1].toFloat(), 
+                (loc[0] + dialogView.width).toFloat(), 
+                (loc[1] + dialogView.height).toFloat()
+            )
+            (activity as? HomeActivity)?.applyDialogEffect(rect, px38dp, pxNeg60dp, 20f, 10f)
+        }
+        dialog.setOnDismissListener { (activity as? HomeActivity)?.clearDialogEffect() }
     }
 
-    private fun updateAnimationState(isPlaying: Boolean, playbackState: Int) {
-        if (isPlaying && playbackState == Player.STATE_READY) {
-            startRotation()
-        } else {
-            stopRotation()
+    private fun setupPlayer() {
+        player = (activity as? HomeActivity)?.mediaController
+        player?.let {
+            it.addListener(object : Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    updateMetadata(mediaItem)
+                }
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    btnPlayPause.setImageResource(if (isPlaying) R.drawable.ic_pause_vector else R.drawable.ic_play_vector)
+                    updateNeedle(isPlaying)
+                    if (isPlaying && !rvLyrics.isVisible) {
+                        discRotationHandler.post(discRotationRunnable)
+                    } else {
+                        discRotationHandler.removeCallbacks(discRotationRunnable)
+                    }
+                }
+                override fun onRepeatModeChanged(repeatMode: Int) { updatePlayModeIcon() }
+                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { updatePlayModeIcon() }
+            })
+            it.repeatMode = Player.REPEAT_MODE_ALL
+            btnPlayPause.setImageResource(if (it.isPlaying) R.drawable.ic_pause_vector else R.drawable.ic_play_vector)
+            updateNeedle(it.isPlaying)
+            updatePlayModeIcon()
+
+            updateMetadata(it.currentMediaItem)
+            updateUIProgress(it)
+            handler.post(updateProgressAction)
+            if (it.isPlaying && !rvLyrics.isVisible) {
+                discRotationHandler.post(discRotationRunnable)
+            }
         }
     }
 
     private fun updateNeedle(isPlaying: Boolean) {
         ivNeedle.animate()
-            .rotation(if (isPlaying) 0f else -30f)
-            .setDuration(300)
-            .setInterpolator(android.view.animation.AccelerateDecelerateInterpolator())
+            .rotation(if (isPlaying) -8f else -35f) // 15f 是【播放/放下】角度，-25f 是【暂停/抬起】角度
+            .setDuration(400) // 稍微慢一点更像机械臂
             .start()
+    }
+
+    private fun updateMetadata(mediaItem: MediaItem?) {
+        if (mediaItem == null || !isAdded) return
+        
+        val itemId = mediaItem.mediaId
+        pbDownload.progress = SongDownloader.getProgress(itemId)
+
+        mediaItem.mediaMetadata.let {
+            tvTitle.text = it.title
+            tvArtist.text = it.artist
+            val artworkUri = it.artworkUri
+            
+            val extras = it.extras
+            if (extras != null) {
+                updateFavoriteIcon(extras.getBoolean("is_favorite", false))
+                val isTranscoding = extras.getBoolean("is_transcoding", false)
+                val codec = extras.getString("codec", "未知")
+                val bitrate = extras.getInt("bitrate", 0) / 1000
+                
+                if (!isTranscoding) {
+                    tvAudioQuality.text = "⚠️ 源码播放 $codec ${bitrate}kbps"
+                    tvAudioQuality.setTextColor(Color.YELLOW)
+                    tvAudioQuality.background = null // 移除背景
+                } else {
+                    tvAudioQuality.text = "${getString(R.string.transcoding)} $codec ${bitrate}kbps"
+                    tvAudioQuality.setTextColor(Color.parseColor("#B3FFFFFF"))
+                    tvAudioQuality.background = null // 移除背景
+                }
+                tvAudioQuality.visibility = View.VISIBLE
+            } else {
+                tvAudioQuality.visibility = View.GONE
+            }
+
+            preloadLyrics(itemId, it.title?.toString(), it.artist?.toString())
+
+            // 优先检查本地 Netease 封面缓存，加速显示
+            val context = context
+            val cachedCover = if (context != null) {
+                context.getSharedPreferences("netease_covers", AppCompatActivity.MODE_PRIVATE)
+                    .getString(itemId, null)
+            } else null
+
+            val finalArtworkUri = if (cachedCover != null) Uri.parse(cachedCover) else artworkUri
+
+            ivCover.load(finalArtworkUri) {
+                crossfade(true)
+                placeholder(R.drawable.cd)
+                error(R.drawable.cd)
+                listener(onError = { _, _ ->
+                    // 如果原图和缓存都失败了，再尝试搜索
+                    searchNeteaseCover(itemId, it.title?.toString(), it.artist?.toString())
+                })
+            }
+            
+            updateBlurBackground(finalArtworkUri)
+        }
+    }
+
+    private fun updateUIProgress(p: Player) {
+        if (isDragging) return
+        if (rvLyrics.isVisible && !isUserScrollingLyrics) {
+            val index = lyricsAdapter.updateActiveLine(p.currentPosition)
+            if (index != -1) rvLyrics.smoothScrollToPosition(index)
+        }
+        val extras = p.currentMediaItem?.mediaMetadata?.extras
+        val injectDuration = extras?.getLong("duration_ms") ?: 0L
+        val duration = if (p.duration > 0) p.duration else injectDuration
+        val current = p.currentPosition
+        if (duration > 0) {
+            seekBar.max = duration.toInt()
+            seekBar.progress = current.toInt()
+            seekBar.secondaryProgress = p.bufferedPosition.toInt()
+            tvTotalTime.text = formatTime(duration)
+        }
+        tvCurrentTime.text = formatTime(current)
+    }
+
+    private fun getColorFromAttr(@AttrRes attr: Int): Int {
+        val typedValue = TypedValue()
+        requireContext().theme.resolveAttribute(attr, typedValue, true)
+        return typedValue.data
+    }
+
+    private fun updateFavoriteIcon(isFavorite: Boolean) {
+        if (isFavorite) {
+            btnMore.setImageResource(R.drawable.ic_heart)
+            btnMore.setColorFilter(Color.RED, android.graphics.PorterDuff.Mode.SRC_IN)
+        } else {
+            btnMore.setImageResource(R.drawable.ic_heart_border)
+            btnMore.setColorFilter(Color.parseColor("#66FFFFFF"), android.graphics.PorterDuff.Mode.SRC_IN)
+        }
+    }
+
+    private fun toggleFavorite() {
+        val mediaItem = player?.currentMediaItem ?: return
+        val itemId = mediaItem.mediaMetadata.extras?.getString("item_id") ?: return
+        val isFavorite = mediaItem.mediaMetadata.extras?.getBoolean("is_favorite", false) ?: false
+        val service = apiService ?: return
+        val context = context ?: return
+        val prefs = context.getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)
+        val userId = prefs.getString("user_id", "") ?: ""
+        val accessToken = prefs.getString("access_token", "") ?: ""
+        val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.0.0\", Token=\"$accessToken\""
+
+        lifecycleScope.launch {
+            try {
+                if (isFavorite) service.unmarkFavorite(userId, itemId, authHeader)
+                else service.markFavorite(userId, itemId, authHeader)
+                mediaItem.mediaMetadata.extras?.putBoolean("is_favorite", !isFavorite)
+                updateFavoriteIcon(!isFavorite)
+                Toast.makeText(context, if (isFavorite) R.string.removed_from_favorites else R.string.added_to_favorites, Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, R.string.sync_failed, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun searchNeteaseCover(itemId: String, title: String?, artist: String?) {
         lifecycleScope.launch(Dispatchers.IO) {
-            val cleanedTitle = title?.replace(Regex("\\s*[(\\[].*?[)\\]]"), "")?.trim() ?: ""
+            val cleanedTitle = title?.replace(Regex("\\s*[([\\[].*[\\])]]"), "")?.trim() ?: ""
             val query = if (artist.isNullOrBlank() || artist == "未知歌手") cleanedTitle else "$cleanedTitle $artist"
             if (query.isEmpty()) return@launch
             try {
+                // 1. 搜索歌曲，获取 songId
                 val searchResponse = neteaseApi.searchSong(query)
                 val song = searchResponse.result?.songs?.firstOrNull() ?: return@launch
                 
+                // 2. 使用新版 v3 详情接口获取封面
+                // 这里的 ids 参数 need formatted as [{"id":songId}]
                 val detailResponse = neteaseApi.getSongDetail("[{\"id\":${song.id}}]")
                 val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
                 
                 if (!picUrl.isNullOrEmpty()) {
                     withContext(Dispatchers.Main) {
                         if (player?.currentMediaItem?.mediaId == itemId) {
+                            // 3. 将拉取到的封面保存到本地持久化缓存，供列表使用
                             saveNeteaseCoverToCache(itemId, picUrl)
+                            
+                            // 4. 更新当前播放器的 MediaItem，确保通知栏同步
                             updateMediaItemArtwork(picUrl)
-                            ivAlbumArt.load(picUrl) { 
+
+                            // 加载界面封面
+                            ivCover.load(picUrl) { 
                                 crossfade(true)
                                 listener(onSuccess = { _, _ ->
                                     updateBlurBackground(picUrl)
@@ -647,7 +746,7 @@ class PlayerDialogFragment : DialogFragment() {
 
     private fun saveNeteaseCoverToCache(itemId: String, url: String) {
         val context = context ?: return
-        val prefs = context.getSharedPreferences("netease_covers", android.content.Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences("netease_covers", AppCompatActivity.MODE_PRIVATE)
         prefs.edit { putString(itemId, url) }
     }
 
@@ -661,296 +760,12 @@ class PlayerDialogFragment : DialogFragment() {
             .setMediaMetadata(newMetadata)
             .build()
         
+        // 注意：Media3 不支持直接在播放时替换单个 Item 的 Metadata 且保持进度
+        // 但我们可以通过 replaceMediaItem 来实现
         val currentIndex = p.currentMediaItemIndex
         val currentPosition = p.currentPosition
         p.replaceMediaItem(currentIndex, newItem)
         p.seekTo(currentIndex, currentPosition)
-    }
-
-    private fun toggleFavorite() {
-        val mediaItem = player?.currentMediaItem ?: return
-        val itemId = mediaItem.mediaId
-        val isFav = mediaItem.mediaMetadata.extras?.getBoolean("is_favorite", false) ?: false
-        
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val prefs = context?.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
-                val userId = prefs?.getString("user_id", "") ?: ""
-                val accessToken = prefs?.getString("access_token", "") ?: ""
-                val auth = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
-                
-                if (isFav) {
-                    apiService?.unmarkFavorite(userId, itemId, auth)
-                } else {
-                    apiService?.markFavorite(userId, itemId, auth)
-                }
-                
-                withContext(Dispatchers.Main) {
-                    mediaItem.mediaMetadata.extras?.putBoolean("is_favorite", !isFav)
-                    updateFavoriteButton(!isFav)
-                }
-            } catch (e: Exception) {
-                Log.e("PlayerDialog", "Toggle favorite error: ${e.message}")
-            }
-        }
-    }
-
-    private fun updateFavoriteButton(isFav: Boolean) {
-        btnMore.setImageResource(if (isFav) R.drawable.ic_heart else R.drawable.ic_heart_border)
-        btnMore.setColorFilter(if (isFav) "#FF4444".toColorInt() else Color.WHITE)
-    }
-
-    private fun updatePlayModeIcon() {
-        val p = player ?: return
-        // 优先展示意图模式
-        val mode = when {
-            pendingPlayMode == "shuffle" -> "shuffle"
-            pendingPlayMode == "folder" -> "folder"
-            p.repeatMode == Player.REPEAT_MODE_ONE -> "repeat_one"
-            p.shuffleModeEnabled -> "shuffle"
-            else -> "folder"
-        }
-        
-        when (mode) {
-            "shuffle" -> btnPlayMode.setImageResource(R.drawable.ic_shuffle_vector)
-            "repeat_one" -> btnPlayMode.setImageResource(R.drawable.ic_repeat_one_vector)
-            else -> btnPlayMode.setImageResource(R.drawable.ic_repeat_vector)
-        }
-    }
-
-    private fun togglePlayMode() {
-        val p = player ?: return
-        
-        val currentMode = when {
-            pendingPlayMode == "shuffle" -> "shuffle"
-            pendingPlayMode == "folder" -> "folder"
-            p.repeatMode == Player.REPEAT_MODE_ONE -> "repeat_one"
-            p.shuffleModeEnabled -> "shuffle"
-            else -> "folder"
-        }
-
-        val nextMode = when (currentMode) {
-            "shuffle" -> "folder"
-            "folder" -> "repeat_one"
-            "repeat_one" -> "shuffle"
-            else -> "folder"
-        }
-
-        playModeJob?.cancel()
-        val hint: String
-        
-        // 保存播放模式到持久化存储
-        context?.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)?.edit {
-            putString("play_mode", nextMode)
-        }
-
-        when (nextMode) {
-            "folder" -> {
-                pendingPlayMode = "folder"
-                p.shuffleModeEnabled = false
-                p.repeatMode = Player.REPEAT_MODE_ALL
-                hint = "列表循环 (当前文件夹)"
-                // 不再立即调用 switchToFolderRepeat，改为由进度监听器或手动切歌触发
-            }
-            "repeat_one" -> {
-                pendingPlayMode = null
-                p.shuffleModeEnabled = false
-                p.repeatMode = Player.REPEAT_MODE_ONE
-                hint = "单曲循环"
-            }
-            "shuffle" -> {
-                pendingPlayMode = "shuffle"
-                p.shuffleModeEnabled = true
-                p.repeatMode = Player.REPEAT_MODE_ALL
-                hint = "随机播放 (全库)"
-            }
-            else -> {
-                pendingPlayMode = null
-                hint = "列表循环"
-            }
-        }
-
-        updatePlayModeIcon()
-        showPlayModeHint(hint)
-    }
-
-    private fun checkAndApplyPendingPlayMode(skipDirection: Int = 0) {
-        val mode = pendingPlayMode ?: return
-        pendingPlayMode = null 
-        
-        Log.d("PlayerDialog", "Applying mode: $mode, skip: $skipDirection")
-        
-        when (mode) {
-            "shuffle" -> playModeJob = switchToAllMusicShuffle(skipDirection)
-            "folder" -> playModeJob = switchToFolderRepeat(skipDirection)
-        }
-    }
-
-    private fun switchToAllMusicShuffle(skipDirection: Int = 0): Job? {
-        val p = player ?: return null
-        val currentMediaItem = p.currentMediaItem ?: return null
-        val currentId = currentMediaItem.mediaId
-        val currentSessionId = currentMediaItem.mediaMetadata.extras?.getString("play_session_id")
-        val realItemId = if (currentId.contains("_")) currentId.substringBefore("_") else currentId
-        val context = context ?: return null
-        
-        return lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val prefs = context.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
-                val userId = prefs.getString("user_id", "") ?: ""
-                val accessToken = prefs.getString("access_token", "") ?: ""
-                val serverUrl = prefs.getString("server_url", "") ?: ""
-                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
-                
-                if (userId.isEmpty() || serverUrl.isEmpty()) return@launch
-
-                val response = apiService?.getItems(
-                    userId = userId, 
-                    includeItemTypes = "Audio", 
-                    recursive = true, 
-                    auth = authHeader,
-                    sortBy = "SortName"
-                )
-                val allSongs = response?.Items ?: return@launch
-                
-                if (allSongs.isNotEmpty()) {
-                    val mediaItems = allSongs.map { song ->
-                        MediaItemUtils.buildMediaItem(
-                            song = song,
-                            serverUrl = serverUrl,
-                            accessToken = accessToken,
-                            userId = userId,
-                            overrideSessionId = if (song.Id == realItemId) currentSessionId else null
-                        )
-                    }
-                    
-                    withContext(Dispatchers.Main) {
-                        val currentPlayer = player ?: return@withContext
-                        
-                        // 记录当前播放位置，如果只是切换模式而不切歌，需要保持
-                        val currentPos = currentPlayer.currentPosition
-                        val wasPlaying = currentPlayer.isPlaying
-                        
-                        isSwitchingMode = true
-                        
-                        // 如果有 skipDirection，说明是点击下一曲/上一曲触发的，需要计算索引
-                        var targetIndex = allSongs.indexOfFirst { it.Id == realItemId }
-                        if (targetIndex == -1) targetIndex = 0
-                        
-                        currentPlayer.setMediaItems(mediaItems, targetIndex, currentPos)
-                        currentPlayer.shuffleModeEnabled = true
-                        
-                        if (skipDirection > 0) currentPlayer.seekToNextMediaItem()
-                        else if (skipDirection < 0) currentPlayer.seekToPreviousMediaItem()
-                        
-                        // 仅在非播放状态下调用 prepare，减少播放中的卡顿
-                        if (currentPlayer.playbackState == Player.STATE_IDLE) {
-                            currentPlayer.prepare()
-                        }
-                        if (wasPlaying || skipDirection != 0) currentPlayer.play()
-                        
-                        isSwitchingMode = false
-                        updateUI()
-                    }
-                }
-            } catch (e: Exception) {
-                if (e !is kotlinx.coroutines.CancellationException) {
-                    Log.e("PlayerDialog", "Shuffle All error: ${e.message}")
-                }
-            }
-        }
-    }
-
-    private fun switchToFolderRepeat(skipDirection: Int = 0): Job? {
-        val p = player ?: return null
-        val currentMediaItem = p.currentMediaItem ?: return null
-        val currentId = currentMediaItem.mediaId
-        val currentSessionId = currentMediaItem.mediaMetadata.extras?.getString("play_session_id")
-        val realItemId = if (currentId.contains("_")) currentId.substringBefore("_") else currentId
-        
-        var parentId = currentMediaItem.mediaMetadata.extras?.getString("parent_id")
-        val context = context ?: return null
-        
-        return lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val prefs = context.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
-                val userId = prefs.getString("user_id", "") ?: ""
-                val accessToken = prefs.getString("access_token", "") ?: ""
-                val serverUrl = prefs.getString("server_url", "") ?: ""
-                val authHeader = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
-                
-                if (parentId.isNullOrEmpty()) {
-                    val item = apiService?.getItem(userId, realItemId, authHeader)
-                    parentId = item?.ParentId
-                }
-
-                if (parentId.isNullOrEmpty()) {
-                    withContext(Dispatchers.Main) {
-                        p.shuffleModeEnabled = false
-                        showPlayModeHint("无法识别目录，仅循环当前队列")
-                    }
-                    return@launch
-                }
-                
-                val response = apiService?.getItems(
-                    userId = userId,
-                    parentId = parentId!!,
-                    includeItemTypes = "Audio",
-                    recursive = false,
-                    auth = authHeader,
-                    sortBy = "ParentIndexNumber,IndexNumber,SortName"
-                )
-                val folderSongs = response?.Items ?: return@launch
-                
-                if (folderSongs.isNotEmpty()) {
-                    val mediaItems = folderSongs.map { song ->
-                        MediaItemUtils.buildMediaItem(
-                            song = song,
-                            serverUrl = serverUrl,
-                            accessToken = accessToken,
-                            userId = userId,
-                            overrideSessionId = if (song.Id == realItemId) currentSessionId else null
-                        )
-                    }
-                    
-                    withContext(Dispatchers.Main) {
-                        val currentPlayer = player ?: return@withContext
-                        val currentPos = currentPlayer.currentPosition
-                        
-                        // 找到当前歌曲在文件夹列表中的索引
-                        val currentIndex = folderSongs.indexOfFirst { it.Id == realItemId }
-                        
-                        currentPlayer.shuffleModeEnabled = false
-                        currentPlayer.repeatMode = Player.REPEAT_MODE_ALL
-                        
-                        isSwitchingMode = true // 防止切歌动画触发
-                        currentPlayer.setMediaItems(mediaItems, if (currentIndex != -1) currentIndex else 0, currentPos)
-                        
-                        if (skipDirection > 0) currentPlayer.seekToNextMediaItem()
-                        else if (skipDirection < 0) currentPlayer.seekToPreviousMediaItem()
-                        
-                        // 仅在非播放状态下调用 prepare
-                        if (currentPlayer.playbackState == Player.STATE_IDLE) {
-                            currentPlayer.prepare()
-                        }
-                        currentPlayer.play()
-                        isSwitchingMode = false
-                        updateUI()
-                    }
-                }
-            } catch (e: Exception) {
-                if (e !is kotlinx.coroutines.CancellationException) {
-                    Log.e("PlayerDialog", "Folder Repeat error: ${e.message}")
-                }
-            }
-        }
-    }
-
-    private fun showPlayModeHint(text: String) {
-        tvPlayModeHint.text = text
-        tvPlayModeHint.visibility = View.VISIBLE
-        handler.removeCallbacks(hideHintRunnable)
-        handler.postDelayed(hideHintRunnable, 1000)
     }
 
     private fun updateBlurBackground(data: Any?) {
@@ -965,92 +780,95 @@ class PlayerDialogFragment : DialogFragment() {
             val result = ImageLoader(context).execute(request)
             if (result is SuccessResult && isAdded) {
                 ivBlurBackground.setImageDrawable(result.drawable)
-                // 移除此处对状态栏颜色的干扰，保持 onStart 中的强制白色设置
+                // 更新状态栏图标颜色
+                dialog?.window?.let { window ->
+                    val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+                    WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !isDark
+                }
             }
         }
     }
 
     private fun showLyrics() {
-        rlDiscContainer.visibility = View.GONE
+        rlDiscContainer.animate()
+            .alpha(0f)
+            .scaleX(0.8f)
+            .scaleY(0.8f)
+            .setDuration(400)
+            .withEndAction {
+                rlDiscContainer.visibility = View.GONE
+                rlDiscContainer.scaleX = 1f
+                rlDiscContainer.scaleY = 1f
+                rlDiscContainer.alpha = 1f
+            }
+            .start()
+
         rvLyrics.visibility = View.VISIBLE
+        rvLyrics.alpha = 0f
+        rvLyrics.animate()
+            .alpha(1f)
+            .setDuration(400)
+            .start()
+
+        // 停止唱片旋转以节省性能
+        discRotationHandler.removeCallbacks(discRotationRunnable)
+
         val mediaItem = player?.currentMediaItem ?: return
         val itemId = mediaItem.mediaId
         if (lyricsCache.containsKey(itemId)) {
             lyricsAdapter.lines = lyricsCache[itemId]!!
         } else {
-            lyricsAdapter.lines = listOf(LrcLine(0, "正在加载歌词..."))
-            val metadata = mediaItem.mediaMetadata
-            preloadLyrics(itemId, metadata.title?.toString(), metadata.artist?.toString())
+            lyricsAdapter.lines = listOf(LrcLine(0, getString(R.string.loading_lyrics)))
+            preloadLyrics(itemId, mediaItem.mediaMetadata.title?.toString(), mediaItem.mediaMetadata.artist?.toString())
+        }
+        
+        // 自动滚动到当前进度
+        player?.let { updateUIProgress(it) }
+    }
+
+    private fun preloadLyrics(itemId: String, title: String?, artist: String?) {
+        if (lyricsCache.containsKey(itemId)) return
+        val service = apiService ?: return
+        val context = context ?: return
+        val prefs = context.getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)
+        val accessToken = prefs.getString("access_token", "") ?: ""
+        val authHeader = "MediaBrowser Token=\"$accessToken\""
+
+        lifecycleScope.launch {
+            try {
+                val response = service.getLyrics(itemId, authHeader)
+                val rawLines = response.Lines ?: response.Lyrics ?: response.LyricLines
+                val actualLines = rawLines as? List<LyricLine>
+                if (actualLines == null || actualLines.isEmpty()) {
+                    searchNeteaseLyrics(itemId, title, artist)
+                } else {
+                    val metadata = mutableListOf(LrcLine(-1, title ?: "未知曲名"), LrcLine(-1, artist ?: "未知歌手"))
+                    val lyrics = actualLines.map { LrcLine(it.StartTicks?.let { t -> t / 10000 } ?: it.Start?.let { t -> t.toLong() / 10000 } ?: 0L, it.Text ?: "") }
+                        .filter { it.text.isNotBlank() }.sortedBy { it.timeMs }
+                    val finalLines = metadata + lyrics
+                    lyricsCache[itemId] = finalLines
+                    if (rvLyrics.isVisible && player?.currentMediaItem?.mediaId == itemId) {
+                        lyricsAdapter.lines = finalLines
+                    }
+                }
+            } catch (_: Exception) { searchNeteaseLyrics(itemId, title, artist) }
         }
     }
 
-    private fun hideLyrics() {
-        rvLyrics.visibility = View.GONE
-        rlDiscContainer.visibility = View.VISIBLE
-    }
-
-    @OptIn(UnstableApi::class)
-    fun getLyricsFromCache(itemId: String): List<LrcLine>? {
-        return lyricsCache[itemId]
-    }
-
-    @OptIn(UnstableApi::class)
-    private fun preloadLyrics(itemId: String, title: String?, artist: String?) {
-        if (lyricsCache.containsKey(itemId)) return
-        Log.d("Lyrics", "Fetching Netease lyrics for $itemId")
-        searchNeteaseLyrics(itemId, title, artist)
-    }
-
     private fun searchNeteaseLyrics(itemId: String, title: String?, artist: String?) {
-        val cleanedTitle = title?.replace(Regex("(?i)\\s*[(\\[](?!.*feat).*?[)\\]]"), "")?.trim() ?: ""
+        val cleanedTitle = title?.replace(Regex("\\s*[([\\[].*[\\])]]"), "")?.trim() ?: ""
         val isUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
         val query = if (isUnknown) cleanedTitle else "$cleanedTitle $artist"
         if (query.isEmpty()) { showNoLyrics(itemId, title, artist); return }
 
-        val currentDuration = player?.duration ?: 0L
-
         lifecycleScope.launch {
             try {
-                val searchResponse = neteaseApi.searchSong(query, limit = 10)
-                val songs = searchResponse.result?.songs
-                
-                if (songs.isNullOrEmpty()) {
-                    if (!isUnknown) searchNeteaseLyrics(itemId, cleanedTitle, null)
-                    else showNoLyrics(itemId, title, artist)
-                    return@launch
-                }
-
-                val bestMatch = songs.maxByOrNull { song ->
-                    var score = 0
-                    if (song.name.equals(cleanedTitle, ignoreCase = true)) score += 15
-                    else if (song.name.contains(cleanedTitle, ignoreCase = true)) score += 8
-                    
-                    val songArtists = song.artists?.map { it.name } ?: emptyList()
-                    if (!isUnknown) {
-                        if (songArtists.any { it.equals(artist, ignoreCase = true) }) score += 15
-                        else if (songArtists.any { it.contains(artist, ignoreCase = true) }) score += 7
-                    }
-                    
-                    if (currentDuration > 0 && (song.duration ?: 0) > 0) {
-                        val diff = kotlin.math.abs(currentDuration - (song.duration ?: 0))
-                        when {
-                            diff < 2000 -> score += 20
-                            diff < 5000 -> score += 10
-                            diff > 30000 -> score -= 15
-                        }
-                    }
-                    if (!cleanedTitle.contains("Live", true) && song.name.contains("Live", true)) score -= 10
-                    score
-                } ?: songs.first()
-
-                val lyricResponse = neteaseApi.getLyric(bestMatch.id)
+                val searchResponse = neteaseApi.searchSong(query)
+                val song = searchResponse.result?.songs?.firstOrNull() ?: throw Exception("Not found")
+                val lyricResponse = neteaseApi.getLyric(song.id)
                 val lrcText = lyricResponse.lrc?.lyric
                 if (!lrcText.isNullOrBlank()) {
-                    val metadata = mutableListOf(
-                        LrcLine(-1, bestMatch.name),
-                        LrcLine(-1, bestMatch.artists?.joinToString("/") { it.name } ?: (artist ?: "未知歌手")),
-                        LrcLine(-1, "来源: 网易云音乐 (智能匹配)")
-                    )
+                    val metadata = mutableListOf(LrcLine(-1, title ?: getString(R.string.unknown_song)), LrcLine(-1, artist ?: getString(R.string.unknown_artist)), LrcLine(-1, getString(R.string.source_netease)))
                     val mainLyrics = LrcParser.parse(lrcText)
                     val tlyricText = lyricResponse.tlyric?.lyric
                     val finalLines = if (!tlyricText.isNullOrBlank()) metadata + mergeLyrics(mainLyrics, LrcParser.parse(tlyricText)) else metadata + mainLyrics
@@ -1060,13 +878,14 @@ class PlayerDialogFragment : DialogFragment() {
                     }
                 } else { showNoLyrics(itemId, title, artist) }
             } catch (_: Exception) { 
-                showNoLyrics(itemId, title, artist)
+                if (!isUnknown && cleanedTitle.isNotEmpty()) searchNeteaseLyrics(itemId, cleanedTitle, null)
+                else showNoLyrics(itemId, title, artist)
             }
         }
     }
 
     private fun showNoLyrics(itemId: String, title: String?, artist: String?) {
-        val finalLines = listOf(LrcLine(-1, title ?: "未知曲名"), LrcLine(-1, artist ?: "未知歌手"), LrcLine(0, "未找到在线歌词"))
+        val finalLines = listOf(LrcLine(-1, title ?: getString(R.string.unknown_song)), LrcLine(-1, artist ?: getString(R.string.unknown_artist)), LrcLine(0, getString(R.string.no_lyrics)))
         lyricsCache[itemId] = finalLines
         if (rvLyrics.isVisible && player?.currentMediaItem?.mediaId == itemId) {
             lyricsAdapter.lines = finalLines
@@ -1081,10 +900,49 @@ class PlayerDialogFragment : DialogFragment() {
         }
     }
 
+    private fun hideLyrics() {
+        rvLyrics.animate()
+            .alpha(0f)
+            .setDuration(400)
+            .withEndAction {
+                rvLyrics.visibility = View.GONE
+                rvLyrics.alpha = 1f
+            }
+            .start()
+
+        rlDiscContainer.visibility = View.VISIBLE
+        rlDiscContainer.alpha = 0f
+        rlDiscContainer.scaleX = 0.8f
+        rlDiscContainer.scaleY = 0.8f
+        rlDiscContainer.animate()
+            .alpha(1f)
+            .scaleX(1f)
+            .scaleY(1f)
+            .setDuration(400)
+            .start()
+
+        // 恢复唱片旋转
+        if (player?.isPlaying == true) {
+            discRotationHandler.post(discRotationRunnable)
+        }
+    }
+
     private fun formatTime(ms: Long): String {
         val sec = (ms / 1000) % 60
         val min = (ms / (1000 * 60)) % 60
         return String.format(Locale.getDefault(), "%02d:%02d", min, sec)
     }
 
+    override fun onDismiss(dialog: DialogInterface) {
+        super.onDismiss(dialog)
+        (activity as? HomeActivity)?.clearDialogEffect()
+    }
+
+    override fun onDestroyView() {
+        handler.removeCallbacksAndMessages(null)
+        discRotationHandler.removeCallbacksAndMessages(null)
+        SongDownloader.removeProgressListener(downloadProgressListener)
+        (activity as? HomeActivity)?.clearDialogEffect()
+        super.onDestroyView()
+    }
 }

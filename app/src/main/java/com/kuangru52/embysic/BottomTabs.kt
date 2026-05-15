@@ -18,7 +18,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.layout.positionInWindow
+import android.graphics.RectF
+import androidx.media3.common.util.UnstableApi
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -34,6 +36,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 
+@OptIn(UnstableApi::class)
 @Composable
 fun BottomTabs(
     controller: MediaController,
@@ -106,11 +109,23 @@ fun BottomTabs(
                 .offset(y = (-10).dp)
         )
 
-        // 内容层容器：带圆角裁剪，保持玻璃质感
+        // 内容层容器：不再对自己应用任何渲染效果，只上报坐标给 Activity
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(38.dp)) // 调整为 38dp，匹配小米等现代旗舰机大 R 角屏幕
+                .onGloballyPositioned { coordinates ->
+                    val position = coordinates.positionInWindow()
+                    val size = coordinates.size
+                    // positionInWindow 返回相对于 Activity 窗口的坐标，HomeActivity 会进行二次校准
+                    (context as? HomeActivity)?.setDockRect(
+                        RectF(
+                            position.x,
+                            position.y,
+                            position.x + size.width,
+                            position.y + size.height
+                        )
+                    )
+                }
                 .background(Color.Transparent)
                 .border(
                     width = 0.5.dp,
@@ -242,7 +257,6 @@ fun BottomTabs(
                                             if (libraryClickCount >= 5) {
                                                 onLibraryScan()
                                                 libraryClickCount = 0
-                                                Toast.makeText(context, "正在同步媒体库...", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                         "Search" -> onNavigation("Search")

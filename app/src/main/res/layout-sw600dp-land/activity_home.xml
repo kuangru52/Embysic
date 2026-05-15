@@ -6,14 +6,14 @@
     android:layout_height="match_parent"
     android:background="@drawable/bg_superman">
 
-    <!-- 左侧 1/3：导航与列表区域 -->
+    <!-- 左侧：导航与内容区域 (1/3 宽度) -->
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/left_panel"
         android:layout_width="0dp"
         android:layout_height="match_parent"
         app:layout_constraintHorizontal_weight="1"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toStartOf="@+id/right_panel">
+        app:layout_constraintEnd_toStartOf="@+id/divider">
 
         <FrameLayout
             android:id="@+id/fragment_container"
@@ -34,10 +34,11 @@
         android:id="@+id/divider"
         android:layout_width="1dp"
         android:layout_height="match_parent"
-        android:background="#33FFFFFF"
-        app:layout_constraintStart_toEndOf="@id/left_panel" />
+        android:background="#20FFFFFF"
+        app:layout_constraintStart_toEndOf="@id/left_panel"
+        app:layout_constraintEnd_toStartOf="@+id/right_panel" />
 
-    <!-- 右侧 2/3：播放页分栏区域 -->
+    <!-- 右侧：精美播放器区域 (2/3 宽度) -->
     <LinearLayout
         android:id="@+id/right_panel"
         android:layout_width="0dp"
@@ -45,22 +46,32 @@
         android:orientation="horizontal"
         android:baselineAligned="false"
         app:layout_constraintHorizontal_weight="2"
-        app:layout_constraintStart_toEndOf="@id/left_panel"
+        app:layout_constraintStart_toEndOf="@id/divider"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <!-- 右侧左半：封面唱片 (占右侧 1/2) -->
+        <!-- 播放器左半：黑胶唱片 -->
         <FrameLayout
             android:id="@+id/player_disc_side"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="1" />
+            android:layout_weight="1">
+            <!-- 占位，待适配新版唱片组件 -->
+        </FrameLayout>
 
-        <!-- 右侧右半：歌词 (占右侧 1/2) -->
+        <!-- 播放器右半：实时滚动歌词 -->
         <FrameLayout
             android:id="@+id/player_lyric_side"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="1" />
+            android:layout_weight="1">
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvLyrics"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:paddingTop="200dp"
+                android:paddingBottom="200dp"
+                android:clipToPadding="false" />
+        </FrameLayout>
 
     </LinearLayout>
 

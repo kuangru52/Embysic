@@ -33,5 +33,18 @@
     <string name="cancel">Cancel</string>
     <string name="delete_selected">Delete Selected</string>
     <string name="confirm_delete">Confirm Delete</string>
+    <string name="delete_msg">Are you sure you want to permanently delete \"%1$s\"? This action cannot be undone.</string>
     <string name="batch_delete_msg">Are you sure you want to permanently delete the selected %1$d items? This action cannot be undone.</string>
+    <string name="deleted_success">Deleted</string>
+    <string name="delete_failed">Delete failed: %1$s</string>
+    <string name="sync_library_started">Library sync started</string>
+    <string name="syncing_library">Syncing library...</string>
+    <string name="login_error_empty">Please enter server address and username</string>
+    <string name="login_success">Login successful</string>
+    <string name="login_failed_no_token">Login failed: Access token not found</string>
+    <string name="login_error">Login error: %1$s</string>
+    <string name="repeat_all">Repeat All</string>
+    <string name="repeat_one">Repeat One</string>
+    <string name="shuffle">Shuffle</string>
+    <string name="repeat_off">Repeat Off</string>
 </resources>

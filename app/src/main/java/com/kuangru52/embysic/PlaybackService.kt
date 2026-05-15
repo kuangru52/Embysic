@@ -82,7 +82,7 @@ class PlaybackService : MediaSessionService() {
                 .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
         )
-            .setUserAgent("Embysic/1.12")
+            .setUserAgent("Embysic/2.03")
             .setDefaultRequestProperties(mapOf("X-Emby-Token" to accessToken))
 
         val cacheDataSourceFactory = CacheDataSource.Factory()
@@ -318,7 +318,7 @@ class PlaybackService : MediaSessionService() {
         val accessToken = prefs.getString("access_token", "") ?: ""
         val userId = prefs.getString("user_id", "") ?: ""
         // 完全对标 SPlayer 的 Header 格式
-        return "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\", UserId=\"$userId\""
+        return "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"2.03\", Token=\"$accessToken\", UserId=\"$userId\""
     }
 
     private var isStartReported = false

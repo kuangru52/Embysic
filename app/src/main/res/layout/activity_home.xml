@@ -5,12 +5,22 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- 背景模糊层 (用于背景同步) -->
+    <ImageView
+        android:id="@+id/ivBlurBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:alpha="0.6"
+        android:src="@drawable/bg_superman"
+        android:contentDescription="@null" />
+
     <!-- 主内容区域：透明背景，允许 Activity 的背景穿透 -->
     <FrameLayout
         android:id="@+id/fragment_container"
         android:layout_width="0dp"
         android:layout_height="0dp"
-        android:background="@drawable/bg_superman"
+        android:background="@android:color/transparent"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -23,5 +33,10 @@
         android:layout_height="wrap_content"
         android:background="@android:color/transparent"
         app:layout_constraintBottom_toBottomOf="parent" />
+
+    <com.kuangru52.embysic.HeartLayout
+        android:id="@+id/heartLayout"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

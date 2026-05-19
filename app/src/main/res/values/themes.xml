@@ -31,14 +31,19 @@
         <item name="android:windowContentOverlay">@null</item>
         <item name="android:windowIsFloating">false</item>
         <item name="android:backgroundDimEnabled">true</item>
-        <item name="android:backgroundDimAmount">0.6</item>
+        <item name="android:backgroundDimAmount">0.5</item>
         <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowElevation">0dp</item>
         <item name="bottomSheetStyle">@style/CustomBottomSheetStyle</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
     </style>
 
     <style name="CustomBottomSheetStyle" parent="Widget.Material3.BottomSheet">
         <item name="backgroundTint">@android:color/transparent</item>
         <item name="shapeAppearance">@null</item>
+        <item name="android:elevation">0dp</item>
+        <item name="elevation">0dp</item>
     </style>
 
     <style name="CircleImage" parent="">

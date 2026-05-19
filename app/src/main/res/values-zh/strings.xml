@@ -21,7 +21,8 @@
 
     <!-- 状态与消息 -->
     <string name="loading_lyrics">正在加载歌词…</string>
-    <string name="transcoding">正在转码: </string>
+    <string name="transcoding">转码播放 %1$s %2$dkbps</string>
+    <string name="source_playback">⚠️ 源码播放 %1$s %2$dkbps</string>
     <string name="no_lyrics">未找到在线歌词</string>
     <string name="unknown_song">未知曲名</string>
     <string name="unknown_artist">未知歌手</string>

@@ -79,14 +79,14 @@ fun SparkingProgressBar(
             val lineY = height / 2 + lineCenterOffset.dp.toPx()
             val progressX = width * displayProgress
 
-            // 1. 底色引线
+            // 1. 底色引线 - 恢复，但不使用全长，而是作为玻璃背景的一部分
             drawRect(
                 color = accentColor.copy(alpha = 0.1f),
                 topLeft = Offset(0f, lineY - 0.75.dp.toPx()),
                 size = Size(width, 1.5.dp.toPx())
             )
 
-            // 2. 已燃烧引线
+            // 2. 已燃烧引线 - 恢复原始设计
             drawRect(
                 brush = Brush.horizontalGradient(
                     colors = listOf(accentColor.copy(alpha = 0.2f), accentColor.copy(alpha = 0.9f)),

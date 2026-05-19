@@ -39,30 +39,34 @@ object LrcParser {
             val timeMatches = timeRegex.findAll(trimLine).toList()
             if (timeMatches.isNotEmpty()) {
                 val text = trimLine.replace(timeRegex, "").trim()
-                // 修复：即使 text 为空也添加行，以支持 LRC 中的空行（通常表示间奏或停顿）
-                timeMatches.forEach { match ->
-                    val min = match.groupValues[1].toLong()
-                    val sec = match.groupValues[2].toLong()
-                    val msStr = match.groupValues.getOrNull(3)
-                    
-                    val ms = when (msStr?.length) {
-                        null -> 0L
-                        1 -> msStr.toLong() * 100
-                        2 -> msStr.toLong() * 10
-                        3 -> msStr.toLong()
-                        else -> msStr.take(3).toLong() // 超过3位则截断，兼容 [mm:ss:SSS] 误写
+                // 优化：过滤掉空行
+                if (text.isNotBlank()) {
+                    timeMatches.forEach { match ->
+                        val min = match.groupValues[1].toLong()
+                        val sec = match.groupValues[2].toLong()
+                        val msStr = match.groupValues.getOrNull(3)
+                        
+                        val ms = when (msStr?.length) {
+                            null -> 0L
+                            1 -> msStr.toLong() * 100
+                            2 -> msStr.toLong() * 10
+                            3 -> msStr.toLong()
+                            else -> msStr.take(3).toLong() 
+                        }
+                        val timeMs = min * 60000 + sec * 1000 + ms
+                        lines.add(LrcLine(timeMs, text))
                     }
-                    val timeMs = min * 60000 + sec * 1000 + ms
-                    lines.add(LrcLine(timeMs, text))
                 }
             } else if (!trimLine.startsWith("[")) {
                 // 处理没有标签的纯文本
-                lines.add(LrcLine(0, trimLine))
+                if (trimLine.isNotBlank()) {
+                    lines.add(LrcLine(0, trimLine))
+                }
             }
         }
         
         val metadata = lines.filter { it.timeMs == -1L }
-        val lyrics = lines.filter { it.timeMs >= 0L }.sortedBy { it.timeMs }
+        val lyrics = lines.filter { it.timeMs >= 0L && it.text.isNotBlank() }.sortedBy { it.timeMs }
         
         return if (metadata.isEmpty() && lyrics.isEmpty()) emptyList() else metadata + lyrics
     }

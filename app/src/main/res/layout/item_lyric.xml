@@ -4,9 +4,8 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:gravity="center"
-    android:paddingVertical="14dp"
+    android:paddingVertical="8dp"
     android:paddingHorizontal="32dp"
     android:textColor="?attr/colorOnSurfaceVariant"
     android:textSize="18sp"
-    android:lineSpacingExtra="4dp"
     android:fontFamily="sans-serif-medium" />

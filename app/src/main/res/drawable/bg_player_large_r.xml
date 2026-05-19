@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 1. 核心修复：使用纯黑背景，确保在物理 R 角处完美融合 -->
+    <solid android:color="#FF000000" />
+
+    <!-- 2. 精准匹配小米 17/Redmi K90 级别超大物理 R 角 (42dp 为大屏旗舰适配值) -->
+    <corners android:radius="42dp" />
+</shape>

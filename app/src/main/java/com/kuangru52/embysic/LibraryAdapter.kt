@@ -104,7 +104,12 @@ class LibraryAdapter(
     private val bitmapCache = LruCache<String, Bitmap>(100)
     private var lastClickTime: Long = 0
 
-    fun submitList(newItems: List<EmbyItem>) {
+    private var isDarkForce = false
+
+    fun submitList(newItems: List<EmbyItem>, context: android.content.Context? = null) {
+        // 更新强制深色状态
+        isDarkForce = (context as? HomeActivity)?.isDarkForce() ?: false
+        
         val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
             override fun getOldListSize(): Int = items.size
             override fun getNewListSize(): Int = newItems.size
@@ -169,11 +174,17 @@ class LibraryAdapter(
         private val itemContainer: View = view.findViewById(R.id.itemContainer)
         private val btnDelete: TextView = view.findViewById(R.id.btnDelete)
 
+        private val itemViewContext = view.context
+
         fun bind(item: EmbyItem) {
             val position = bindingAdapterPosition
             tvName.text = item.Name
             val isParentFolder = item.Id == "BACK_FOLDER"
             
+            // 动态解析颜色，解决“红蓝背景”瞬间切换感
+            val currentPrimary = if (isDarkForce) android.graphics.Color.WHITE else primaryColor
+            val currentSecondary = if (isDarkForce) android.graphics.Color.parseColor("#B0FFFFFF") else secondaryColor
+
             // 处理删除按钮显示状态
             if (!isParentFolder && onItemDelete != null && expandedDeletePosition == position) {
                 btnDelete.visibility = View.VISIBLE
@@ -251,15 +262,15 @@ class LibraryAdapter(
                     ivIcon.colorFilter = folderHighlightMatrix
                 } else if (isFolderLike) {
                     tvIndex.visibility = View.GONE
-                    tvName.setTextColor(primaryColor)
-                    tvArtist.setTextColor(secondaryColor)
+                    tvName.setTextColor(currentPrimary)
+                    tvArtist.setTextColor(currentSecondary)
                 } else {
                     tvIndex.visibility = View.VISIBLE
                     tvIndex.background = null
                     tvIndex.text = if (item.IndexNumber != null) String.format("%02d", item.IndexNumber) else ""
-                    tvIndex.setTextColor(secondaryColor)
-                    tvName.setTextColor(primaryColor)
-                    tvArtist.setTextColor(secondaryColor)
+                    tvIndex.setTextColor(currentSecondary)
+                    tvName.setTextColor(currentPrimary)
+                    tvArtist.setTextColor(currentSecondary)
                 }
             }
 

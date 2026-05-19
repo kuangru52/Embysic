@@ -12,6 +12,8 @@ import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import android.view.animation.Animation
+import android.view.animation.AnimationUtils
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
@@ -26,6 +28,16 @@ import retrofit2.converter.gson.GsonConverterFactory
 @UnstableApi
 class FavoriteFragment : Fragment() {
 
+    override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
+        if (!enter && (activity as? HomeActivity)?.isSwipingBack == true) {
+            return AnimationUtils.loadAnimation(context, R.anim.ios_slide_out_right).apply {
+                duration = 0
+            }
+        }
+        return super.onCreateAnimation(transit, enter, nextAnim)
+    }
+
+    private lateinit var ivFragmentBackground: android.widget.ImageView
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: LibraryAdapter
@@ -39,10 +51,17 @@ class FavoriteFragment : Fragment() {
         get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        val view = inflater.inflate(R.layout.fragment_recent, container, false) // 重用 fragment_recent 布局
+        val view = inflater.inflate(R.layout.fragment_recent, container, false)
+        ivFragmentBackground = view.findViewById(R.id.ivFragmentBackground)
         recyclerView = view.findViewById(R.id.rvRecent)
         progressBar = view.findViewById(R.id.progressBar)
         
+        // 同步全局模糊背景，实现“不透明的透明”
+        (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)?.let { activityBg ->
+            ivFragmentBackground.setImageDrawable(activityBg.drawable)
+            ivFragmentBackground.alpha = activityBg.alpha
+        }
+
         setupRecyclerView()
         loadPrefs()
         initApiService()
@@ -54,10 +73,33 @@ class FavoriteFragment : Fragment() {
     private val playerListener = object : androidx.media3.common.Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             updatePlaybackState(mediaItem)
+            syncBackground()
         }
         override fun onPositionDiscontinuity(oldPosition: androidx.media3.common.Player.PositionInfo, newPosition: androidx.media3.common.Player.PositionInfo, reason: Int) {
             updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
         }
+    }
+
+    private fun syncBackground() {
+        if (!isAdded) return
+        
+        // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
+        val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 && 
+                          resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        
+        if (isTabletLand) {
+            ivFragmentBackground.visibility = View.GONE
+            return
+        }
+
+        view?.postDelayed({
+            val activityBackground = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
+            if (activityBackground != null && activityBackground.drawable != null) {
+                ivFragmentBackground.setImageDrawable(activityBackground.drawable)
+                ivFragmentBackground.alpha = activityBackground.alpha
+                ivFragmentBackground.visibility = View.VISIBLE
+            }
+        }, 500)
     }
 
     private fun updatePlaybackState(mediaItem: MediaItem?) {

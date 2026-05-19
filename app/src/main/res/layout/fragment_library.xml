@@ -6,10 +6,21 @@
     android:layout_height="match_parent"
     android:background="@android:color/transparent">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <FrameLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="?android:attr/windowBackground">
+        android:layout_height="match_parent">
+
+        <!-- 伪透明背景层：每个层级都有，用于遮挡下层文字，但视觉上与全局一致 -->
+        <ImageView
+            android:id="@+id/ivFragmentBackground"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop" />
+
+        <androidx.constraintlayout.widget.ConstraintLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@android:color/transparent">
 
         <androidx.compose.ui.platform.ComposeView
             android:id="@+id/search_bar_compose"
@@ -34,7 +45,7 @@
             android:id="@+id/selectionBar"
             android:layout_width="match_parent"
             android:layout_height="64dp"
-            android:background="?android:attr/windowBackground"
+            android:background="@android:color/transparent"
             android:elevation="8dp"
             android:gravity="center_vertical"
             android:orientation="horizontal"
@@ -79,4 +90,5 @@
             app:layout_constraintTop_toTopOf="parent" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
+    </FrameLayout>
 </com.kuangru52.embysic.SwipeBackLayout>

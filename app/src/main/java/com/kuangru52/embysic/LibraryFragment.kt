@@ -19,9 +19,13 @@ import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import android.view.animation.Animation
+import android.view.animation.AnimationUtils
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -29,6 +33,17 @@ import retrofit2.converter.gson.GsonConverterFactory
 @UnstableApi
 class LibraryFragment : Fragment() {
 
+    override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
+        val activity = activity as? HomeActivity
+        if (activity?.isSwipingBack == true) {
+            // 如果是手势返回，无论是进入还是退出，都返回一个时长为 0 的空动画
+            // 彻底防止系统动画重叠
+            return object : Animation() {}.apply { duration = 0 }
+        }
+        return super.onCreateAnimation(transit, enter, nextAnim)
+    }
+
+    private lateinit var ivFragmentBackground: android.widget.ImageView
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: LibraryAdapter
@@ -46,7 +61,19 @@ class LibraryFragment : Fragment() {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_library, container, false)
+        ivFragmentBackground = view.findViewById(R.id.ivFragmentBackground)
         recyclerView = view.findViewById(R.id.rvLibrary)
+        
+        // 沉浸式：设置 PaddingTop
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, systemBars.top, 0, 0)
+            insets
+        }
+
+        // 同步全局模糊背景
+        syncBackground()
+
         progressBar = view.findViewById(R.id.progressBar)
         selectionBar = view.findViewById(R.id.selectionBar)
         btnDeleteBatch = view.findViewById(R.id.btnDeleteBatch)
@@ -119,9 +146,30 @@ class LibraryFragment : Fragment() {
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             updatePlaybackState(mediaItem)
+            syncBackground()
         }
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
             updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
+        }
+    }
+
+    private fun syncBackground() {
+        if (!isAdded) return
+        
+        // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
+        val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 && 
+                          resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        
+        if (isTabletLand) {
+            ivFragmentBackground.visibility = View.GONE
+            return
+        }
+
+        val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
+        if (activityBg != null && activityBg.drawable != null) {
+            ivFragmentBackground.setImageDrawable(activityBg.drawable)
+            ivFragmentBackground.alpha = activityBg.alpha
+            ivFragmentBackground.visibility = View.VISIBLE
         }
     }
 
@@ -149,6 +197,10 @@ class LibraryFragment : Fragment() {
     private fun setupRecyclerView() {
         adapter = LibraryAdapter(
             onItemClick = { item ->
+                if (item.Id == "BACK_FOLDER") {
+                    parentFragmentManager.popBackStack()
+                    return@LibraryAdapter
+                }
                 if (item.IsFolder) {
                     val fragment = LibraryFragment().apply {
                         arguments = Bundle().apply {
@@ -156,11 +208,7 @@ class LibraryFragment : Fragment() {
                             putString("artist_name", item.Name)
                         }
                     }
-                    parentFragmentManager.beginTransaction()
-                        .setCustomAnimations(R.anim.ios_slide_in_right, 0, 0, 0)
-                        .add(R.id.fragment_container, fragment)
-                        .addToBackStack(null)
-                        .commit()
+                    (activity as? HomeActivity)?.replaceFragment(fragment, "Library_${item.Id}")
                 } else {
                     playMusic(item, adapter.items)
                 }
@@ -311,62 +359,59 @@ class LibraryFragment : Fragment() {
         val service = apiService ?: return
         val currentUserId = userId 
         val currentAuth = authHeader
-        (activity as? AppCompatActivity)?.supportActionBar?.title = title
 
         lifecycleScope.launch {
             progressBar.visibility = View.VISIBLE
             try {
                 val response = if (parentId == null) {
                     val views = service.getUserViews(currentUserId, currentAuth)
-                    val musicLibrary = views.Items.find { it.CollectionType == "music" }
+                    val musicLibrary = views.Items.find { it.CollectionType.equals("music", ignoreCase = true) }
                     if (musicLibrary != null) {
-                        loadItems(musicLibrary.Id, musicLibrary.Name)
-                        return@launch
+                        // 修复：直接加载音乐库内容，不再递归调用 loadItems 避免状态混乱
+                        service.getItems(
+                            userId = currentUserId,
+                            parentId = musicLibrary.Id,
+                            recursive = false,
+                            auth = currentAuth,
+                            includeItemTypes = "Audio,Folder,MusicAlbum,MusicArtist,CollectionFolder",
+                            fields = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,Filename,SortName,ChildCount,RecursiveItemCount,ParentId,HasLyrics",
+                            sortBy = "IsFolder,SortName",
+                            sortOrder = "Ascending"
+                        )
+                    } else {
+                        views
                     }
-                    views
                 } else {
                     service.getItems(
                         userId = currentUserId, 
                         parentId = parentId, 
                         recursive = false, 
                         auth = currentAuth,
-                        fields = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,Filename,SortName,ChildCount,RecursiveItemCount,ParentId,HasLyrics"
+                        includeItemTypes = "Audio,Folder,MusicAlbum,MusicArtist,CollectionFolder",
+                        fields = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,Filename,SortName,ChildCount,RecursiveItemCount,ParentId,HasLyrics",
+                        sortBy = "IsFolder,SortName",
+                        sortOrder = "Ascending"
                     )
                 }
 
                 // 1. 过滤：排除名为 "Artwork" 的文件夹
-                // 2. 增强过滤：如果是文件夹类型，则检查其是否有音乐或子文件夹，避免显示只有图片的空壳文件夹
                 val filteredItems = response.Items.filter { item ->
                     if (item.Name == "Artwork") return@filter false
-                    
-                    // 如果是文件夹或专辑，检查其内容计数（Emby 返回的 RecursiveItemCount 或 ChildCount）
-                    if (item.IsFolder || item.Type == "MusicAlbum" || item.Type == "MusicArtist" || item.Type == "CollectionFolder") {
-                        // 如果有 RecursiveItemCount 且为 0，说明没有任何后代（包括音乐和子文件夹）
-                        val hasContent = (item.RecursiveItemCount ?: 1) > 0 || (item.ChildCount ?: 1) > 0
-                        hasContent
-                    } else {
-                        // 非文件夹（即 Audio 等）直接保留
-                        true
-                    }
+                    true
                 }
 
-                // 排序逻辑：
-                val folders = filteredItems.filter { it.Type != "Audio" }
-                val music = filteredItems.filter { it.Type == "Audio" }.sortedWith { a, b ->
-                    val discA = a.ParentIndexNumber ?: 1
-                    val discB = b.ParentIndexNumber ?: 1
-                    if (discA != discB) {
-                        discA.compareTo(discB)
-                    } else {
-                        val idxA = a.IndexNumber ?: Int.MAX_VALUE
-                        val idxB = b.IndexNumber ?: Int.MAX_VALUE
-                        if (idxA != idxB) {
-                            idxA.compareTo(idxB)
-                        } else {
-                            a.Name.compareTo(b.Name, ignoreCase = true)
-                        }
-                    }
-                }
+                // 排序逻辑：遵循 Emby 服务器原始排序（处理中文）+ 音乐音轨强制排序
+                // 1. 文件夹：直接信任 Emby 服务端的 SortName 排序结果，完美支持中文拼音
+                val folders = filteredItems.filter { it.IsFolder || it.Type != "Audio" }
+                
+                // 2. 音乐文件：在当前目录下，依然强制按照【碟号 > 音轨号】排序，确保专辑曲目顺序正确
+                val music = filteredItems.filter { !it.IsFolder && it.Type == "Audio" }
+                    .sortedWith(
+                        compareBy<EmbyItem> { it.ParentIndexNumber ?: 0 } // 先排碟号
+                            .thenBy { it.IndexNumber ?: 0 }               // 再排音轨号
+                            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.SortName ?: it.Name }
+                    )
+
                 val sortedItems = folders + music
                 
                 // 增加“面包屑/母文件夹”功能
@@ -393,7 +438,7 @@ class LibraryFragment : Fragment() {
                     sortedItems
                 }
                 
-                adapter.submitList(finalItems)
+                adapter.submitList(finalItems, context)
             } catch (e: Exception) {
                 // 静默处理所有加载失败，避免切换过快产生的弹窗
             } finally {

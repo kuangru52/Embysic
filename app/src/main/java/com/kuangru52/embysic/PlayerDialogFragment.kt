@@ -12,6 +12,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
+import android.graphics.Outline
+import android.view.ViewOutlineProvider
+import android.view.RoundedCorner
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -44,6 +47,8 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
@@ -115,6 +120,9 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }
     }
     private lateinit var rvLyrics: RecyclerView
+    private lateinit var rlTopBar: View
+    private lateinit var contentContainer: View
+    private lateinit var flHintContainer: View
     private lateinit var pbDownload: ProgressBar
     private lateinit var llVolumeHint: View
     private lateinit var sbVolumeHint: SeekBar
@@ -129,7 +137,9 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             .start()
     }
 
-    private val lyricsAdapter = LyricsAdapter { _ -> hideLyrics() }
+    private lateinit var heartLayout: HeartLayout
+
+    private val lyricsAdapter = LyricsAdapter { hideLyrics() }
     private var player: Player? = null
     fun setPlayer(player: Player) {
         this.player = player
@@ -138,11 +148,14 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
     private val handler = Handler(Looper.getMainLooper())
     private var isDragging = false
     private var isUserScrollingLyrics = false
-    private val resumeAutoScrollRunnable = Runnable { isUserScrollingLyrics = false }
+    private val resumeAutoScrollRunnable = Runnable { 
+        isUserScrollingLyrics = false
+        player?.let { updateUIProgress(it) }
+    }
     private var apiService: EmbyApiService? = null
 
     companion object {
-        private val lyricsCache = mutableMapOf<String, List<LrcLine>>()
+        val lyricsCache = mutableMapOf<String, List<LrcLine>>()
     }
 
     private val downloadProgressListener = { itemId: String, progressPercent: Int ->
@@ -175,6 +188,11 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }
     }
 
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setStyle(STYLE_NORMAL, R.style.Theme_PlayerBottomSheet)
+    }
+
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val dialog = super.onCreateDialog(savedInstanceState) as BottomSheetDialog
         dialog.behavior.apply {
@@ -198,36 +216,19 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             val bottomSheet = it.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
             bottomSheet?.let { sheet ->
                 sheet.layoutParams.height = ViewGroup.LayoutParams.MATCH_PARENT
+                // 关键：将系统默认的 BottomSheet 背景设为透明，避免露底
                 sheet.setBackgroundColor(Color.TRANSPARENT)
-                
-                sheet.post {
-                    val dm = resources.displayMetrics
-                    val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
-                    val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
-                    val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
-                    val px10dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, dm)
-
-                    val dialogLoc = IntArray(2)
-                    sheet.getLocationOnScreen(dialogLoc)
-                    
-                    val dialogRect = RectF(
-                        dialogLoc[0].toFloat(),
-                        dialogLoc[1].toFloat(),
-                        (dialogLoc[0] + sheet.width).toFloat(),
-                        (dialogLoc[1] + sheet.height).toFloat()
-                    )
-                    (activity as? HomeActivity)?.applyDialogEffect(dialogRect, px38dp, pxNeg60dp, px20dpRefHeight, px10dpBlurRadius)
-                }
             }
             
             it.window?.let { window ->
                 window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
+                // 恢复全屏显示，确保背景模糊和布局延伸到状态栏
                 window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
                 
-                val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+                // 始终使用浅色状态栏图标 (白色)，因为播放器背景是深色的
                 val controller = WindowInsetsControllerCompat(window, window.decorView)
-                controller.isAppearanceLightStatusBars = !isDark
-                controller.isAppearanceLightNavigationBars = !isDark
+                controller.isAppearanceLightStatusBars = false
+                controller.isAppearanceLightNavigationBars = false
             }
         }
     }
@@ -240,10 +241,45 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         SongDownloader.addProgressListener(downloadProgressListener)
         
         val navigationBarSpacer = view.findViewById<View>(R.id.navigationBarSpacer)
+        val statusBarSpacer = view.findViewById<View>(R.id.statusBarSpacer)
+        
         ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            
+            // 1. 处理状态栏和导航栏占位
+            statusBarSpacer.layoutParams.height = bars.top
+            statusBarSpacer.requestLayout()
+
             navigationBarSpacer.layoutParams.height = bars.bottom
             navigationBarSpacer.requestLayout()
+
+            // 2. 处理自适应圆角
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val platformInsets = insets.toWindowInsets()
+                if (platformInsets != null) {
+                    val topLeft = platformInsets.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)
+                    val topRight = platformInsets.getRoundedCorner(RoundedCorner.POSITION_TOP_RIGHT)
+                    
+                    val radius = topLeft?.radius?.toFloat() ?: topRight?.radius?.toFloat() ?: 
+                                 (28 * resources.displayMetrics.density)
+
+                    v.outlineProvider = object : ViewOutlineProvider() {
+                        override fun getOutline(view: View, outline: Outline) {
+                            outline.setRoundRect(0, 0, view.width, view.height, radius)
+                        }
+                    }
+                    v.clipToOutline = true
+                }
+            } else {
+                val radius = 28 * resources.displayMetrics.density
+                v.outlineProvider = object : ViewOutlineProvider() {
+                    override fun getOutline(view: View, outline: Outline) {
+                        outline.setRoundRect(0, 0, view.width, view.height, radius)
+                    }
+                }
+                v.clipToOutline = true
+            }
+
             insets
         }
         
@@ -284,9 +320,13 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         cvAlbumArt = view.findViewById(R.id.cvAlbumArt)
         ivNeedle = view.findViewById(R.id.ivNeedle)
         rvLyrics = view.findViewById(R.id.rvLyrics)
+        rlTopBar = view.findViewById(R.id.rlTopBar)
+        contentContainer = view.findViewById(R.id.contentContainer)
+        flHintContainer = view.findViewById(R.id.flHintContainer)
         pbDownload = view.findViewById(R.id.pbDownload)
         sbVolumeHint = view.findViewById(R.id.sbVolumeHint)
         llVolumeHint = view.findViewById(R.id.llVolumeHint)
+        heartLayout = view.findViewById(R.id.heartLayout)
 
         ivNeedle.rotation = -25f // 初始设置为暂停时的角度
 
@@ -461,32 +501,45 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }.start()
     }
 
+    private val updatePlayModeUIRunnable = Runnable {
+        updatePlayModeIcon()
+        showPlayModeHint()
+    }
+
     private fun togglePlayMode() {
         val p = player ?: return
-        val modeText = when (p.repeatMode) {
-            Player.REPEAT_MODE_OFF -> {
-                p.repeatMode = Player.REPEAT_MODE_ALL
-                p.shuffleModeEnabled = false
-                getString(R.string.repeat_all)
+        val currentRepeatMode = p.repeatMode
+        val isShuffle = p.shuffleModeEnabled
+
+        // 目标模式：单曲 (ONE) -> 列表 (ALL, shuffle=false) -> 随机 (ALL, shuffle=true)
+        val (nextRepeat, nextShuffle) = when {
+            isShuffle -> {
+                // 当前是随机 -> 切到单曲循环
+                Player.REPEAT_MODE_ONE to false
             }
-            Player.REPEAT_MODE_ALL -> {
-                if (p.shuffleModeEnabled) {
-                    p.repeatMode = Player.REPEAT_MODE_ONE
-                    p.shuffleModeEnabled = false
-                    getString(R.string.repeat_one)
-                } else {
-                    p.shuffleModeEnabled = true
-                    getString(R.string.shuffle)
-                }
+            currentRepeatMode == Player.REPEAT_MODE_ONE -> {
+                // 当前是单曲 -> 切到列表循环
+                Player.REPEAT_MODE_ALL to false
             }
-            Player.REPEAT_MODE_ONE -> {
-                p.repeatMode = Player.REPEAT_MODE_OFF
-                p.shuffleModeEnabled = false
-                getString(R.string.repeat_off)
+            else -> {
+                // 当前是列表循环或其他 -> 切到随机播放
+                Player.REPEAT_MODE_ALL to true
             }
-            else -> ""
         }
-        updatePlayModeIcon()
+
+        p.repeatMode = nextRepeat
+        p.shuffleModeEnabled = nextShuffle
+    }
+
+    private fun showPlayModeHint() {
+        val p = player ?: return
+        if (!isAdded) return
+        
+        val modeText = when {
+            p.shuffleModeEnabled -> getString(R.string.shuffle)
+            p.repeatMode == Player.REPEAT_MODE_ONE -> getString(R.string.repeat_one)
+            else -> getString(R.string.repeat_all)
+        }
         
         tvPlayModeHint.text = modeText
         tvPlayModeHint.visibility = View.VISIBLE
@@ -497,6 +550,8 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
     private fun updatePlayModeIcon() {
         val p = player ?: return
+        if (!isAdded) return
+        
         if (p.shuffleModeEnabled) {
             btnPlayMode.setImageResource(R.drawable.ic_shuffle_vector)
         } else {
@@ -530,46 +585,37 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         })
 
         dialog.show()
-        
-        // 玻璃效果应用到音量弹窗
-        dialogView.post {
-            val dm = resources.displayMetrics
-            val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
-            val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
-            
-            val loc = IntArray(2)
-            dialogView.getLocationOnScreen(loc)
-            val rect = RectF(
-                loc[0].toFloat(), 
-                loc[1].toFloat(), 
-                (loc[0] + dialogView.width).toFloat(), 
-                (loc[1] + dialogView.height).toFloat()
-            )
-            (activity as? HomeActivity)?.applyDialogEffect(rect, px38dp, pxNeg60dp, 20f, 10f)
+    }
+
+    private val playerListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            isUserScrollingLyrics = false
+            handler.removeCallbacks(resumeAutoScrollRunnable)
+            updateMetadata(mediaItem)
         }
-        dialog.setOnDismissListener { (activity as? HomeActivity)?.clearDialogEffect() }
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            btnPlayPause.setImageResource(if (isPlaying) R.drawable.ic_pause_vector else R.drawable.ic_play_vector)
+            updateNeedle(isPlaying)
+            if (isPlaying && !rvLyrics.isVisible) {
+                discRotationHandler.post(discRotationRunnable)
+            } else {
+                discRotationHandler.removeCallbacks(discRotationRunnable)
+            }
+        }
+        override fun onRepeatModeChanged(repeatMode: Int) { 
+            handler.removeCallbacks(updatePlayModeUIRunnable)
+            handler.post(updatePlayModeUIRunnable)
+        }
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { 
+            handler.removeCallbacks(updatePlayModeUIRunnable)
+            handler.post(updatePlayModeUIRunnable)
+        }
     }
 
     private fun setupPlayer() {
         player = (activity as? HomeActivity)?.mediaController
         player?.let {
-            it.addListener(object : Player.Listener {
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    updateMetadata(mediaItem)
-                }
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    btnPlayPause.setImageResource(if (isPlaying) R.drawable.ic_pause_vector else R.drawable.ic_play_vector)
-                    updateNeedle(isPlaying)
-                    if (isPlaying && !rvLyrics.isVisible) {
-                        discRotationHandler.post(discRotationRunnable)
-                    } else {
-                        discRotationHandler.removeCallbacks(discRotationRunnable)
-                    }
-                }
-                override fun onRepeatModeChanged(repeatMode: Int) { updatePlayModeIcon() }
-                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) { updatePlayModeIcon() }
-            })
-            it.repeatMode = Player.REPEAT_MODE_ALL
+            it.addListener(playerListener)
             btnPlayPause.setImageResource(if (it.isPlaying) R.drawable.ic_pause_vector else R.drawable.ic_play_vector)
             updateNeedle(it.isPlaying)
             updatePlayModeIcon()
@@ -598,7 +644,9 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
         mediaItem.mediaMetadata.let {
             tvTitle.text = it.title
+            tvTitle.isSelected = true
             tvArtist.text = it.artist
+            tvArtist.isSelected = true
             val artworkUri = it.artworkUri
             
             val extras = it.extras
@@ -609,13 +657,13 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                 val bitrate = extras.getInt("bitrate", 0) / 1000
                 
                 if (!isTranscoding) {
-                    tvAudioQuality.text = "⚠️ 源码播放 $codec ${bitrate}kbps"
+                    tvAudioQuality.text = getString(R.string.source_playback, codec, bitrate)
                     tvAudioQuality.setTextColor(Color.YELLOW)
-                    tvAudioQuality.background = null // 移除背景
+                    tvAudioQuality.background = null 
                 } else {
-                    tvAudioQuality.text = "${getString(R.string.transcoding)} $codec ${bitrate}kbps"
+                    tvAudioQuality.text = getString(R.string.transcoding, codec, bitrate)
                     tvAudioQuality.setTextColor(Color.parseColor("#B3FFFFFF"))
-                    tvAudioQuality.background = null // 移除背景
+                    tvAudioQuality.background = null
                 }
                 tvAudioQuality.visibility = View.VISIBLE
             } else {
@@ -635,8 +683,8 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
             ivCover.load(finalArtworkUri) {
                 crossfade(true)
-                placeholder(R.drawable.cd)
-                error(R.drawable.cd)
+                placeholder(R.drawable.disk)
+                error(R.drawable.disk)
                 listener(onError = { _, _ ->
                     // 如果原图和缓存都失败了，再尝试搜索
                     searchNeteaseCover(itemId, it.title?.toString(), it.artist?.toString())
@@ -648,10 +696,14 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
     }
 
     private fun updateUIProgress(p: Player) {
-        if (isDragging) return
+        if (isDragging || !isAdded) return
         if (rvLyrics.isVisible && !isUserScrollingLyrics) {
             val index = lyricsAdapter.updateActiveLine(p.currentPosition)
-            if (index != -1) rvLyrics.smoothScrollToPosition(index)
+            if (index != -1) {
+                val layoutManager = rvLyrics.layoutManager as? LinearLayoutManager
+                // 修正参数：将当前行滚动到距离顶部 1/3 的位置，视觉上接近中心且能看到更多后续歌词
+                layoutManager?.scrollToPositionWithOffset(index, rvLyrics.height / 3)
+            }
         }
         val extras = p.currentMediaItem?.mediaMetadata?.extras
         val injectDuration = extras?.getLong("duration_ms") ?: 0L
@@ -695,13 +747,29 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
         lifecycleScope.launch {
             try {
-                if (isFavorite) service.unmarkFavorite(userId, itemId, authHeader)
-                else service.markFavorite(userId, itemId, authHeader)
+                // 提前捕获位置，因为 dismiss 可能导致 view 被销毁
+                val loc = IntArray(2)
+                btnMore.getLocationInWindow(loc)
+                val centerX = loc[0] + btnMore.width / 2f
+                val centerY = loc[1] + btnMore.height / 2f
+
+                if (isFavorite) {
+                    service.unmarkFavorite(userId, itemId, authHeader)
+                    // 收藏碎裂动效
+                    heartLayout.shatterHeart(centerX, centerY)
+                } else {
+                    service.markFavorite(userId, itemId, authHeader)
+                    // 添加爱心浮现动效
+                    repeat(5) {
+                        handler.postDelayed({
+                            heartLayout.addHeart(centerX, centerY)
+                        }, it * 100L)
+                    }
+                }
                 mediaItem.mediaMetadata.extras?.putBoolean("is_favorite", !isFavorite)
                 updateFavoriteIcon(!isFavorite)
-                Toast.makeText(context, if (isFavorite) R.string.removed_from_favorites else R.string.added_to_favorites, Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, R.string.sync_failed, Toast.LENGTH_SHORT).show()
+                // 静默失败
             }
         }
     }
@@ -772,7 +840,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         lifecycleScope.launch {
             val context = context ?: return@launch
             val request = ImageRequest.Builder(context)
-                .data(data)
+                .data(data ?: R.drawable.bg_superman)
                 .size(300)
                 .transformations(BlurTransformation(context, 25, 4))
                 .crossfade(true)
@@ -780,28 +848,27 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             val result = ImageLoader(context).execute(request)
             if (result is SuccessResult && isAdded) {
                 ivBlurBackground.setImageDrawable(result.drawable)
-                // 更新状态栏图标颜色
+                // 更新状态栏图标颜色：始终保持浅色图标以适应深色播放页
                 dialog?.window?.let { window ->
-                    val isDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-                    WindowInsetsControllerCompat(window, window.decorView).isAppearanceLightStatusBars = !isDark
+                    val controller = WindowInsetsControllerCompat(window, window.decorView)
+                    controller.isAppearanceLightStatusBars = false
+                    controller.isAppearanceLightNavigationBars = false
                 }
+            } else if (isAdded) {
+                // 如果加载失败，回退到 superman
+                ivBlurBackground.setImageResource(R.drawable.bg_superman)
             }
         }
     }
 
     private fun showLyrics() {
-        rlDiscContainer.animate()
-            .alpha(0f)
-            .scaleX(0.8f)
-            .scaleY(0.8f)
-            .setDuration(400)
-            .withEndAction {
-                rlDiscContainer.visibility = View.GONE
-                rlDiscContainer.scaleX = 1f
-                rlDiscContainer.scaleY = 1f
-                rlDiscContainer.alpha = 1f
-            }
-            .start()
+        isUserScrollingLyrics = false
+        handler.removeCallbacks(resumeAutoScrollRunnable)
+
+        // 隐藏不需要的组件以释放空间给歌词
+        rlTopBar.visibility = View.GONE
+        contentContainer.visibility = View.GONE
+        flHintContainer.visibility = View.GONE
 
         rvLyrics.visibility = View.VISIBLE
         rvLyrics.alpha = 0f
@@ -815,24 +882,64 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
         val mediaItem = player?.currentMediaItem ?: return
         val itemId = mediaItem.mediaId
+        
+        // 1. 优先检查内存缓存
         if (lyricsCache.containsKey(itemId)) {
             lyricsAdapter.lines = lyricsCache[itemId]!!
-        } else {
-            lyricsAdapter.lines = listOf(LrcLine(0, getString(R.string.loading_lyrics)))
-            preloadLyrics(itemId, mediaItem.mediaMetadata.title?.toString(), mediaItem.mediaMetadata.artist?.toString())
+            player?.let { updateUIProgress(it) }
+            return
         }
+
+        // 2. 检查内置标签 (从 MediaItem Extras 读取，如果已通过扫描注入)
+        val embeddedLyrics = mediaItem.mediaMetadata.extras?.getString("lyrics")
+        if (!embeddedLyrics.isNullOrBlank()) {
+            val lines = LrcParser.parse(embeddedLyrics)
+            if (lines.isNotEmpty()) {
+                lyricsCache[itemId] = lines
+                lyricsAdapter.lines = lines
+                player?.let { updateUIProgress(it) }
+                return
+            }
+        }
+
+        // 3. 网络拉取 (Emby 内置/外置 -> 网易云)
+        lyricsAdapter.lines = listOf(LrcLine(0, getString(R.string.loading_lyrics)))
+        preloadLyrics(itemId, mediaItem.mediaMetadata.title?.toString(), mediaItem.mediaMetadata.artist?.toString())
         
         // 自动滚动到当前进度
         player?.let { updateUIProgress(it) }
     }
 
     private fun preloadLyrics(itemId: String, title: String?, artist: String?) {
-        if (lyricsCache.containsKey(itemId)) return
         val service = apiService ?: return
         val context = context ?: return
         val prefs = context.getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)
         val accessToken = prefs.getString("access_token", "") ?: ""
         val authHeader = "MediaBrowser Token=\"$accessToken\""
+
+        // 1. 检查内存缓存
+        if (lyricsCache.containsKey(itemId)) {
+            if (rvLyrics.isVisible && player?.currentMediaItem?.mediaId == itemId) {
+                lyricsAdapter.lines = lyricsCache[itemId]!!
+            }
+            return
+        }
+
+        // 2. 尝试从磁盘缓存恢复 (实现秒开)
+        val lyricPrefs = context.getSharedPreferences("lyrics_disk_cache", AppCompatActivity.MODE_PRIVATE)
+        val cachedJson = lyricPrefs.getString(itemId, null)
+        if (cachedJson != null) {
+            try {
+                val type = object : TypeToken<List<LrcLine>>() {}.type
+                val diskLines: List<LrcLine> = Gson().fromJson(cachedJson, type)
+                lyricsCache[itemId] = diskLines
+                if (rvLyrics.isVisible && player?.currentMediaItem?.mediaId == itemId) {
+                    lyricsAdapter.lines = diskLines
+                    player?.let { updateUIProgress(it) }
+                }
+                return
+            } catch (e: Exception) { e.printStackTrace() }
+        }
 
         lifecycleScope.launch {
             try {
@@ -847,8 +954,15 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                         .filter { it.text.isNotBlank() }.sortedBy { it.timeMs }
                     val finalLines = metadata + lyrics
                     lyricsCache[itemId] = finalLines
+                    
+                    // 使用 KTX 优化磁盘保存
+                    context.getSharedPreferences("lyrics_disk_cache", AppCompatActivity.MODE_PRIVATE).edit {
+                        putString(itemId, Gson().toJson(finalLines))
+                    }
+
                     if (rvLyrics.isVisible && player?.currentMediaItem?.mediaId == itemId) {
                         lyricsAdapter.lines = finalLines
+                        player?.let { updateUIProgress(it) }
                     }
                 }
             } catch (_: Exception) { searchNeteaseLyrics(itemId, title, artist) }
@@ -873,8 +987,15 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                     val tlyricText = lyricResponse.tlyric?.lyric
                     val finalLines = if (!tlyricText.isNullOrBlank()) metadata + mergeLyrics(mainLyrics, LrcParser.parse(tlyricText)) else metadata + mainLyrics
                     lyricsCache[itemId] = finalLines
+                    
+                    // 使用 KTX 优化磁盘保存
+                    context?.getSharedPreferences("lyrics_disk_cache", AppCompatActivity.MODE_PRIVATE)?.edit {
+                        putString(itemId, Gson().toJson(finalLines))
+                    }
+
                     if (rvLyrics.isVisible && player?.currentMediaItem?.mediaId == itemId) {
                         lyricsAdapter.lines = finalLines
+                        player?.let { updateUIProgress(it) }
                     }
                 } else { showNoLyrics(itemId, title, artist) }
             } catch (_: Exception) { 
@@ -906,25 +1027,28 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             .setDuration(400)
             .withEndAction {
                 rvLyrics.visibility = View.GONE
-                rvLyrics.alpha = 1f
+                // 恢复组件显示
+                rlTopBar.visibility = View.VISIBLE
+                contentContainer.visibility = View.VISIBLE
+                flHintContainer.visibility = View.VISIBLE
+                
+                rlDiscContainer.visibility = View.VISIBLE
+                rlDiscContainer.alpha = 0f
+                rlDiscContainer.scaleX = 0.8f
+                rlDiscContainer.scaleY = 0.8f
+                rlDiscContainer.animate()
+                    .alpha(1f)
+                    .scaleX(1f)
+                    .scaleY(1f)
+                    .setDuration(400)
+                    .withEndAction {
+                        if (player?.isPlaying == true) {
+                            discRotationHandler.post(discRotationRunnable)
+                        }
+                    }
+                    .start()
             }
             .start()
-
-        rlDiscContainer.visibility = View.VISIBLE
-        rlDiscContainer.alpha = 0f
-        rlDiscContainer.scaleX = 0.8f
-        rlDiscContainer.scaleY = 0.8f
-        rlDiscContainer.animate()
-            .alpha(1f)
-            .scaleX(1f)
-            .scaleY(1f)
-            .setDuration(400)
-            .start()
-
-        // 恢复唱片旋转
-        if (player?.isPlaying == true) {
-            discRotationHandler.post(discRotationRunnable)
-        }
     }
 
     private fun formatTime(ms: Long): String {
@@ -935,14 +1059,13 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
     override fun onDismiss(dialog: DialogInterface) {
         super.onDismiss(dialog)
-        (activity as? HomeActivity)?.clearDialogEffect()
     }
 
     override fun onDestroyView() {
+        player?.removeListener(playerListener)
         handler.removeCallbacksAndMessages(null)
         discRotationHandler.removeCallbacksAndMessages(null)
         SongDownloader.removeProgressListener(downloadProgressListener)
-        (activity as? HomeActivity)?.clearDialogEffect()
         super.onDestroyView()
     }
 }

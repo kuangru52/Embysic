@@ -2,6 +2,8 @@ package com.kuangru52.embysic
 
 import android.content.ContentValues
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color as AndroidColor
@@ -45,6 +47,16 @@ class DonationActivity : ComponentActivity() {
     private val qqGroupId = "1027610757"
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 判断是否为平板
+        val isTablet = (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE
+        if (isTablet) {
+            // 平板：默认横屏，但允许旋转
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        } else {
+            // 手机：强制竖屏
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
+
         super.onCreate(savedInstanceState)
 
         // 沉浸式状态栏

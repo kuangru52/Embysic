@@ -6,16 +6,29 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ProgressBar
 import android.widget.Toast
+import android.view.animation.Animation
+import android.view.animation.AnimationUtils
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 
+@UnstableApi
 class ArtistFragment : Fragment() {
+
+    override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
+        if (!enter && (activity as? HomeActivity)?.isSwipingBack == true) {
+            return AnimationUtils.loadAnimation(context, R.anim.ios_slide_out_right).apply {
+                duration = 0
+            }
+        }
+        return super.onCreateAnimation(transit, enter, nextAnim)
+    }
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar

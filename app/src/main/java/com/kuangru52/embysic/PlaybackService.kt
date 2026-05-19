@@ -33,6 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import kotlinx.coroutines.withContext
 import java.io.File
 
 @UnstableApi
@@ -44,6 +45,8 @@ class PlaybackService : MediaSessionService() {
     private var lastReportedItemId: String? = null
     private var currentItemExtras: Bundle? = null
     private var lastKnownPositionMs: Long = 0
+    private val history = mutableListOf<MediaItem>()
+    private var isNavigatingHistory = false
 
     private val updateLastPosRunnable = object : Runnable {
         override fun run() {
@@ -65,6 +68,9 @@ class PlaybackService : MediaSessionService() {
             handler.postDelayed(this, 15000) // 每 15 秒汇报一次，Emby 建议频率
         }
     }
+
+    private lateinit var exoPlayer: ExoPlayer
+    private lateinit var wrappedPlayer: ForwardingPlayer
 
     // 移除旧的私有 cache 定义，使用全局 CacheManager
     @OptIn(UnstableApi::class)
@@ -103,7 +109,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         // 3. 初始化 ExoPlayer
-        val exoPlayer = ExoPlayer.Builder(this)
+        exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(cacheDataSourceFactory))
             .setLoadControl(loadControl)
@@ -139,6 +145,17 @@ class PlaybackService : MediaSessionService() {
                 
                 // 3. 汇报新歌开始
                 reportStart()
+
+                // 更新历史记录（仅当非历史导航触发时）
+                if (mediaItem != null) {
+                    if (!isNavigatingHistory) {
+                        if (history.isEmpty() || history.last().mediaId != mediaItem.mediaId) {
+                            history.add(mediaItem)
+                            if (history.size > 100) history.removeAt(0)
+                        }
+                    }
+                    isNavigatingHistory = false
+                }
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -167,6 +184,9 @@ class PlaybackService : MediaSessionService() {
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    checkAndApplyPendingModes()
+                }
                 if (playbackState == Player.STATE_ENDED) {
                     // 正常结束，汇报 0 表示“听完了”，reportStop 内部会转为 duration
                     reportStop(exoPlayer.currentMediaItem?.mediaId, currentItemExtras, 0L)
@@ -174,28 +194,138 @@ class PlaybackService : MediaSessionService() {
                     currentItemExtras = null
                 }
             }
+
+            private fun checkAndApplyPendingModes() {
+                val p = mediaSession?.player ?: return
+                if (p.duration <= 0) return
+                val remaining = p.duration - p.currentPosition
+                if (remaining < 2000 && remaining > 0) {
+                    // 距离结束不到 2 秒，将延期设置的模式应用到真正的 exoPlayer
+                    (wrappedPlayer as? PendingModePlayer)?.applyPendingModes()
+                }
+            }
         })
 
         // 3. 强制开启寻址权限（工业级兜底）
-        val wrappedPlayer = object : ForwardingPlayer(exoPlayer) {
+        wrappedPlayer = object : ForwardingPlayer(exoPlayer), PendingModePlayer {
+            private var pendingShuffleMode: Boolean? = null
+            private var pendingRepeatMode: Int? = null
+
+            override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
+                if (shuffleModeEnabled) {
+                    // 开启随机时，设置为 Pending
+                    pendingShuffleMode = true
+                } else {
+                    // 关闭随机立即生效
+                    super.setShuffleModeEnabled(false)
+                    pendingShuffleMode = null
+                }
+            }
+
+            override fun setRepeatMode(repeatMode: Int) {
+                if (repeatMode == Player.REPEAT_MODE_ONE) {
+                    // 单曲循环立即生效
+                    super.setRepeatMode(repeatMode)
+                    pendingRepeatMode = null
+                    pendingShuffleMode = false
+                    super.setShuffleModeEnabled(false)
+                } else {
+                    pendingRepeatMode = repeatMode
+                }
+            }
+
+            override fun getShuffleModeEnabled(): Boolean {
+                return pendingShuffleMode ?: super.getShuffleModeEnabled()
+            }
+
+            override fun getRepeatMode(): Int {
+                return pendingRepeatMode ?: super.getRepeatMode()
+            }
+
             override fun seekToNext() {
+                applyPendingModes()
                 super.seekToNext()
                 play() // 强制播放
             }
 
             override fun seekToNextMediaItem() {
+                applyPendingModes()
                 super.seekToNextMediaItem()
                 play() // 强制播放
             }
 
+            override fun applyPendingModes() {
+                pendingShuffleMode?.let {
+                    if (it) {
+                        shuffleLibrary()
+                    } else {
+                        super.setShuffleModeEnabled(false)
+                    }
+                    pendingShuffleMode = null
+                }
+                pendingRepeatMode?.let {
+                    super.setRepeatMode(it)
+                    pendingRepeatMode = null
+                }
+            }
+
+            private fun shuffleLibrary() {
+                val service = apiService ?: return
+                val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+                val userId = prefs.getString("user_id", "") ?: ""
+                val serverUrl = prefs.getString("server_url", "") ?: ""
+                val accessToken = prefs.getString("access_token", "") ?: ""
+                val auth = getAuthHeader()
+
+                serviceScope.launch {
+                    try {
+                        val response = service.getItems(
+                            userId = userId,
+                            includeItemTypes = "Audio",
+                            recursive = true,
+                            sortBy = "Random",
+                            limit = 200,
+                            auth = auth
+                        )
+                        val items = response.Items.map { 
+                            MediaItemUtils.buildMediaItem(it, serverUrl, accessToken, userId)
+                        }
+                        withContext(Dispatchers.Main) {
+                            val currentItem = exoPlayer.currentMediaItem
+                            if (currentItem != null) {
+                                // 保留当前歌曲，将随机到的歌曲放在后面
+                                exoPlayer.setMediaItems(listOf(currentItem) + items, 0, exoPlayer.currentPosition)
+                            } else {
+                                exoPlayer.setMediaItems(items)
+                            }
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                            // 虽然我们手动打乱了列表，但为了让 UI 显示“随机”图标，还是把底层的 shuffle 关掉
+                            // 否则 Media3 可能会再次对我们的随机列表进行二次打乱
+                            super.setShuffleModeEnabled(false) 
+                        }
+                    } catch (e: Exception) {
+                        Log.e("PlaybackService", "Shuffle Library Error: ${e.message}")
+                    }
+                }
+            }
+
             override fun seekToPrevious() {
-                super.seekToPrevious()
-                play() // 强制播放
+                if (history.size > 1) {
+                    isNavigatingHistory = true
+                    history.removeAt(history.size - 1) // 移除当前的
+                    val prevItem = history.removeAt(history.size - 1) // 弹出上一首
+                    setMediaItem(prevItem)
+                    prepare()
+                    play()
+                } else {
+                    super.seekToPrevious()
+                    play()
+                }
             }
 
             override fun seekToPreviousMediaItem() {
-                super.seekToPreviousMediaItem()
-                play() // 强制播放
+                seekToPrevious()
             }
 
             override fun getDuration(): Long {
@@ -261,15 +391,16 @@ class PlaybackService : MediaSessionService() {
                 }
 
                 override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-                    // 彻底放开所有权限，确保 Controller 能感知 Timeline
                     val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                        .build()
-                    val playerCommands = Player.Commands.Builder()
-                        .addAllCommands() // 直接赋予全部权限，最稳妥的工业做法
+                    val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
+                        .add(Player.COMMAND_SEEK_TO_NEXT)
+                        .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                        .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                        .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
                         .build()
                     
                     return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                        .setAvailableSessionCommands(sessionCommands)
+                        .setAvailableSessionCommands(sessionCommands.build())
                         .setAvailablePlayerCommands(playerCommands)
                         .build()
                 }
@@ -439,9 +570,13 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
-        mediaSession?.player?.release()
+        exoPlayer.release()
         mediaSession?.release()
         mediaSession = null
         super.onDestroy()
     }
+}
+
+interface PendingModePlayer {
+    fun applyPendingModes()
 }

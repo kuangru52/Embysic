@@ -14,12 +14,16 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import android.view.animation.Animation
+import android.view.animation.AnimationUtils
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.launch
@@ -29,6 +33,16 @@ import retrofit2.converter.gson.GsonConverterFactory
 @UnstableApi
 class RecentFragment : Fragment() {
 
+    override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
+        if (!enter && (activity as? HomeActivity)?.isSwipingBack == true) {
+            return AnimationUtils.loadAnimation(context, R.anim.ios_slide_out_right).apply {
+                duration = 0
+            }
+        }
+        return super.onCreateAnimation(transit, enter, nextAnim)
+    }
+
+    private lateinit var ivFragmentBackground: android.widget.ImageView
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: LibraryAdapter
@@ -43,9 +57,20 @@ class RecentFragment : Fragment() {
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_recent, container, false)
+        ivFragmentBackground = view.findViewById(R.id.ivFragmentBackground)
         recyclerView = view.findViewById(R.id.rvRecent)
         progressBar = view.findViewById(R.id.progressBar)
         
+        // 沉浸式：设置 PaddingTop
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, systemBars.top, 0, 0)
+            insets
+        }
+
+        // 同步全局模糊背景
+        syncBackground()
+
         setupRecyclerView()
         loadPrefs()
         initApiService()
@@ -57,9 +82,30 @@ class RecentFragment : Fragment() {
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             updatePlaybackState(mediaItem)
+            syncBackground()
         }
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
             updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
+        }
+    }
+
+    private fun syncBackground() {
+        if (!isAdded) return
+
+        // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
+        val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 &&
+                resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+
+        if (isTabletLand) {
+            ivFragmentBackground.visibility = View.GONE
+            return
+        }
+
+        val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
+        if (activityBg != null && activityBg.drawable != null) {
+            ivFragmentBackground.setImageDrawable(activityBg.drawable)
+            ivFragmentBackground.alpha = activityBg.alpha
+            ivFragmentBackground.visibility = View.VISIBLE
         }
     }
 
@@ -235,7 +281,7 @@ class RecentFragment : Fragment() {
             progressBar.visibility = View.VISIBLE
             try {
                 val response = service.getRecentlyPlayedItems(userId, auth = authHeader)
-                adapter.submitList(response.Items)
+                adapter.submitList(response.Items, context)
             } catch (e: Exception) {
                 // 静默处理加载失败
             } finally {

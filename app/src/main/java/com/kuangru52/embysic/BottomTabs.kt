@@ -1,7 +1,6 @@
 package com.kuangru52.embysic
 
-import android.widget.Toast
-import androidx.compose.animation.core.*
+import android.graphics.RectF
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
@@ -15,28 +14,26 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
-import android.graphics.RectF
-import androidx.media3.common.util.UnstableApi
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.net.toUri
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
+import kotlin.math.abs
 
-@OptIn(UnstableApi::class)
+@androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 fun BottomTabs(
     controller: MediaController,
@@ -46,15 +43,18 @@ fun BottomTabs(
     onLibraryScan: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val density = LocalDensity.current
-    val isDark = isSystemInDarkTheme()
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val isTabletLandscape = (configuration.screenLayout and android.content.res.Configuration.SCREENLAYOUT_SIZE_MASK) >= android.content.res.Configuration.SCREENLAYOUT_SIZE_LARGE 
+            && configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+    
+    val isDark = if (isTabletLandscape) true else isSystemInDarkTheme()
     val notPlayingStr = stringResource(R.string.not_playing)
 
     var title by remember { mutableStateOf(controller.currentMediaItem?.mediaMetadata?.title?.toString() ?: notPlayingStr) }
     var artist by remember { mutableStateOf(controller.currentMediaItem?.mediaMetadata?.artist?.toString() ?: "") }
     var artworkUri by remember { mutableStateOf(controller.currentMediaItem?.mediaMetadata?.artworkUri) }
     var isPlaying by remember { mutableStateOf(controller.isPlaying) }
-    var progress by remember { mutableStateOf(0f) }
+    var progress by remember { mutableFloatStateOf(0f) }
 
     // 新增：用于双击和连击的记录状态
     var lastRecentClickTime by remember { mutableLongStateOf(0L) }
@@ -110,26 +110,33 @@ fun BottomTabs(
         )
 
         // 内容层容器：不再对自己应用任何渲染效果，只上报坐标给 Activity
+        var lastRect by remember { mutableStateOf<RectF?>(null) }
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .onGloballyPositioned { coordinates ->
                     val position = coordinates.positionInWindow()
                     val size = coordinates.size
-                    // positionInWindow 返回相对于 Activity 窗口的坐标，HomeActivity 会进行二次校准
-                    (context as? HomeActivity)?.setDockRect(
-                        RectF(
-                            position.x,
-                            position.y,
-                            position.x + size.width,
-                            position.y + size.height
-                        )
+                    val newRect = RectF(
+                        position.x,
+                        position.y,
+                        position.x + size.width,
+                        position.y + size.height
                     )
+                    
+                    // 优化：只有当坐标发生超过 1 像素的位移时才上报，减少 Activity 端的计算压力
+                    if (lastRect == null || 
+                        abs(lastRect!!.top - newRect.top) > 1f || 
+                        abs(lastRect!!.left - newRect.left) > 1f) {
+                        lastRect = newRect
+                        (context as? HomeActivity)?.setDockRect(newRect)
+                    }
                 }
                 .background(Color.Transparent)
+                // 增加 1 像素细线边框：深色模式白色，浅色模式灰色
                 .border(
-                    width = 0.5.dp,
-                    color = if (isDark) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.1f),
+                    width = 1.dp,
+                    color = if (isDark) Color.White.copy(alpha = 0.2f) else Color.Gray.copy(alpha = 0.3f),
                     shape = RoundedCornerShape(38.dp)
                 )
         ) {

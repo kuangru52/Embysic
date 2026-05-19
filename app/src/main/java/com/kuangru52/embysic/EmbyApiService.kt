@@ -9,6 +9,23 @@ import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 interface EmbyApiService {
+    companion object {
+        private var instance: EmbyApiService? = null
+        fun getService(context: android.content.Context): EmbyApiService {
+            if (instance == null) {
+                val prefs = context.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
+                val baseUrl = prefs.getString("server_url", "") ?: ""
+                if (baseUrl.isNotEmpty()) {
+                    instance = retrofit2.Retrofit.Builder()
+                        .baseUrl(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
+                        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+                        .build()
+                        .create(EmbyApiService::class.java)
+                }
+            }
+            return instance!!
+        }
+    }
     @POST("emby/Users/AuthenticateByName")
     suspend fun authenticateByName(
         @Header("X-Emby-Authorization") auth: String,
@@ -25,13 +42,13 @@ interface EmbyApiService {
     suspend fun getItems(
         @Query("UserId") userId: String,
         @Query("SearchTerm") searchTerm: String? = null,
-        @Query("IncludeItemTypes") includeItemTypes: String? = null,
+        @Query("IncludeItemTypes") includeItemTypes: String? = "Audio",
         @Query("Recursive") recursive: Boolean = true,
         @Query("Fields") fields: String = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,Filename,SortName,ChildCount,RecursiveItemCount,ParentId,HasLyrics",
         @Header("X-Emby-Authorization") auth: String,
         @Query("StartIndex") startIndex: Int? = null,
         @Query("Limit") limit: Int? = null,
-        @Query("SortBy") sortBy: String? = null,
+        @Query("SortBy") sortBy: String? = "Random",
         @Query("SortOrder") sortOrder: String? = null,
         @Query("MediaTypes") mediaTypes: String? = null,
         @Query("ParentId") parentId: String? = null,

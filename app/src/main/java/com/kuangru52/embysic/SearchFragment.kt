@@ -42,11 +42,15 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.view.animation.Animation
+import android.view.animation.AnimationUtils
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.launch
@@ -56,6 +60,17 @@ import retrofit2.converter.gson.GsonConverterFactory
 @UnstableApi
 class SearchFragment : Fragment() {
 
+    override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
+        if (!enter && (activity as? HomeActivity)?.isSwipingBack == true) {
+            // 如果正在手势返回，返回一个空动画，避免系统再次触发 ios_slide_out_right
+            return AnimationUtils.loadAnimation(context, R.anim.ios_slide_out_right).apply {
+                duration = 0
+            }
+        }
+        return super.onCreateAnimation(transit, enter, nextAnim)
+    }
+
+    private lateinit var ivFragmentBackground: android.widget.ImageView
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: LibraryAdapter
@@ -71,7 +86,25 @@ class SearchFragment : Fragment() {
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val root = FrameLayout(requireContext()).apply {
             layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+            setBackgroundColor(android.graphics.Color.TRANSPARENT)
         }
+
+        // 0. 伪透明背景图：同步 Activity 的模糊背景
+        ivFragmentBackground = android.widget.ImageView(requireContext()).apply {
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+        }
+        root.addView(ivFragmentBackground)
+
+        // 沉浸式：设置 PaddingTop
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, systemBars.top, 0, 0)
+            insets
+        }
+
+        // 立即执行同步
+        syncBackground()
 
         // 1. Compose 搜索框容器
         val composeView = ComposeView(requireContext()).apply {
@@ -117,7 +150,11 @@ class SearchFragment : Fragment() {
     @Composable
     fun XiaomiSearchBar(onSearch: (String) -> Unit) {
         var text by remember { mutableStateOf("") }
-        val isDark = isSystemInDarkTheme()
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val isTabletLandscape = (configuration.screenLayout and android.content.res.Configuration.SCREENLAYOUT_SIZE_MASK) >= android.content.res.Configuration.SCREENLAYOUT_SIZE_LARGE 
+                && configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        
+        val isDark = if (isTabletLandscape) true else isSystemInDarkTheme()
         val bgColor = if (isDark) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.8f)
         
         val focusRequester = remember { FocusRequester() }
@@ -209,6 +246,7 @@ class SearchFragment : Fragment() {
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             updatePlaybackState(mediaItem)
+            syncBackground()
         }
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
             updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
@@ -236,7 +274,28 @@ class SearchFragment : Fragment() {
         (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
     }
 
+    private fun syncBackground() {
+        if (!isAdded) return
+        
+        // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
+        val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 && 
+                          resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        
+        if (isTabletLand) {
+            ivFragmentBackground.visibility = View.GONE
+            return
+        }
+
+        val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
+        if (activityBg != null && activityBg.drawable != null) {
+            ivFragmentBackground.setImageDrawable(activityBg.drawable)
+            ivFragmentBackground.alpha = activityBg.alpha
+            ivFragmentBackground.visibility = View.VISIBLE
+        }
+    }
+
     private fun setupRecyclerView() {
+        syncBackground()
         adapter = LibraryAdapter(
             onItemClick = { item ->
                 if (item.IsFolder) {
@@ -246,11 +305,7 @@ class SearchFragment : Fragment() {
                             putString("artist_name", item.Name)
                         }
                     }
-                    parentFragmentManager.beginTransaction()
-                        .setCustomAnimations(R.anim.ios_slide_in_right, 0, 0, 0)
-                        .add(R.id.fragment_container, fragment)
-                        .addToBackStack(null)
-                        .commit()
+                    (activity as? HomeActivity)?.replaceFragment(fragment, "Search_${item.Id}")
                 } else {
                     playMusic(item, adapter.items)
                 }
@@ -378,7 +433,7 @@ class SearchFragment : Fragment() {
                     }
                 }
                 val results = folders + music
-                adapter.submitList(results)
+                adapter.submitList(results, context)
             } catch (e: Exception) {
                 // 静默处理取消异常和 Job was cancelled 错误
             } finally {

@@ -6,6 +6,13 @@
     android:layout_height="match_parent"
     android:background="@android:color/transparent">
 
+    <!-- 伪透明背景层 -->
+    <ImageView
+        android:id="@+id/ivFragmentBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvRecent"
         android:layout_width="0dp"

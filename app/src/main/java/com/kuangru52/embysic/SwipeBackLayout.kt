@@ -59,29 +59,38 @@ class SwipeBackLayout @JvmOverloads constructor(
 
             override fun onViewPositionChanged(changedView: View, left: Int, top: Int, dx: Int, dy: Int) {
                 dragOffset = left.toFloat() / width
-                // 核心修复：底层页面位置完全不动，移除 translationX
+                
+                // 预测性返回关键：当开始滑动时，确保底层视图是可见的
+                if (dragOffset > 0 && previousView?.visibility != View.VISIBLE) {
+                    previousView?.visibility = View.VISIBLE
+                }
+                
                 invalidate()
             }
 
             override fun onViewReleased(releasedChild: View, xvel: Float, yvel: Float) {
                 val threshold = width / 3
                 if (xvel > 1000 || (releasedChild.left > threshold && xvel >= 0)) {
-                    // 1. 禁用 Fragment 退出动画，防止产生双重动画
-                    val activity = context as? AppCompatActivity
-                    activity?.supportFragmentManager?.beginTransaction()
-                        ?.setCustomAnimations(0, 0, 0, 0)
-                        ?.commitAllowingStateLoss()
+                    // 设置全局标记，告诉 HomeActivity 正在进行手势返回
+                    (context as? HomeActivity)?.isSwipingBack = true
 
                     dragHelper.settleCapturedViewAt(width, 0)
                     invalidate()
                     
-                    // 2. 动画完成后直接移除
+                    // 动画完成后触发返回
                     postDelayed({
-                        swipeBackListener?.invoke()
+                        // 调用 HomeActivity 的专用方法，通过 isSwipingBack 标记位拦截掉系统重复动画
+                        (context as? HomeActivity)?.popBackStackWithNoAnim()
                     }, 200)
                 } else {
                     dragHelper.settleCapturedViewAt(0, 0)
                     invalidate()
+                    // 如果取消返回，滑动回 0 后重新隐藏底层视图
+                    postDelayed({
+                        if (dragOffset == 0f) {
+                            previousView?.visibility = View.GONE
+                        }
+                    }, 250)
                 }
             }
         })
@@ -156,8 +165,11 @@ class SwipeBackLayout @JvmOverloads constructor(
         // 1. 如果正在滑动且有上一个视图，先绘制底层视图
         if (dragOffset > 0 && previousView != null) {
             canvas.save()
-            // 让底层视图稍微有一点位移（Parallax 效果），或者保持不动
-            // 这里我们保持不动，像一叠纸一样
+            // 核心修复：剪裁绘制区域，只在当前视图左侧露出的部分绘制底层视图，彻底解决文字重叠
+            val clipLeft = 0
+            val clipRight = contentView?.left ?: 0
+            canvas.clipRect(clipLeft, 0, clipRight, height)
+
             previousView?.draw(canvas)
             
             // 绘制一层遮罩，让底层视图看起来在下面

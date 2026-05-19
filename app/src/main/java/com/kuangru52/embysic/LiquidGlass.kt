@@ -61,20 +61,16 @@ fun Modifier.liquidGlassDock(
                     
                     float2 normal = normalize(float2(dX, dY) + 0.0001);
                     
-                    // 应用折射高度和量
-                    float factor = smoothstep(-refractionHeight, 0.0, d);
-                    float2 distortion = normal * factor * refractionAmount;
+                    // 优化折射衰减：使用更平滑的衰减曲线 (Bleed=0, Contrast=0, Refraction=-60/20)
+                    float factor = clamp(-d / refractionHeight, 0.0, 1.0);
+                    factor = factor * factor * (3.0 - 2.0 * factor); 
                     
+                    float2 distortion = normal * factor * refractionAmount;
                     half4 col = content.eval(fragCoord + distortion);
                     
-                    // 材质增益 (渗透度 0.0，仅保留基础的光泽感)
-                    if (isDark > 0.5) {
-                        col.rgb = mix(col.rgb, half3(0.0), 0.05);
-                        col.rgb += (normal.y * 0.05 + 0.02);
-                    } else {
-                        col.rgb = mix(col.rgb, half3(1.0), 0.1);
-                        col.rgb += (normal.y * 0.08 + 0.05);
-                    }
+                    // 材质增益：仅保留极微弱的物理高光
+                    float spec = pow(1.0 - factor, 4.0) * max(0.0, normal.y);
+                    col.rgb += (spec * 0.02);
                     
                     return col;
                 }
@@ -158,7 +154,8 @@ object LiquidGlassFactory {
         refractionHeight: Float,
         blurRadius: Float,
         isDark: Boolean,
-        rect2: RectF? = null // 新增支持第二个区域（如弹窗）
+        rect2: RectF? = null,
+        radius2: Float = radius
     ): RenderEffect {
         val shader = RuntimeShader("""
             uniform shader content;
@@ -166,6 +163,7 @@ object LiquidGlassFactory {
             uniform float4 glassRect2;
             uniform float hasRect2;
             uniform float radius;
+            uniform float radius2;
             uniform float refractionAmount;
             uniform float refractionHeight;
             uniform float blurRadius;
@@ -176,10 +174,14 @@ object LiquidGlassFactory {
                 return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - r;
             }
 
-            // 平滑最小值函数，用于融合两个矩形
             float smin(float a, float b, float k) {
                 float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
                 return mix(b, a, h) - k * h * (1.0 - h);
+            }
+
+            // 高级哈希：Interleaved Gradient Noise，用于生成极高质量的抖动
+            float ign(float2 p) {
+                return fract(52.9829189 * fract(dot(p, float2(0.06711056, 0.00583715))));
             }
 
             half4 main(float2 fragCoord) {
@@ -191,14 +193,12 @@ object LiquidGlassFactory {
                 if (hasRect2 > 0.5) {
                     float2 s2 = (glassRect2.zw - glassRect2.xy) * 0.5;
                     float2 c2 = glassRect2.xy + s2;
-                    float d2 = sdRoundedRect(fragCoord - c2, s2, radius);
-                    // 使用 smin 融合两个区域，消除相交处的硬线条
+                    float d2 = sdRoundedRect(fragCoord - c2, s2, radius2);
                     d = smin(d1, d2, 12.0);
                 }
                 
                 if (d > 0.0) return content.eval(fragCoord);
 
-                // 物理折射：仅在边缘极小范围内产生 (收窄至 refractionHeight)
                 float2 eps = float2(0.5, 0.0);
                 float d_up = sdRoundedRect(fragCoord + eps.yx - c1, s1, radius);
                 float d_dn = sdRoundedRect(fragCoord - eps.yx - c1, s1, radius);
@@ -208,47 +208,64 @@ object LiquidGlassFactory {
                 if (hasRect2 > 0.5) {
                     float2 s2 = (glassRect2.zw - glassRect2.xy) * 0.5;
                     float2 c2 = glassRect2.xy + s2;
-                    d_up = smin(d_up, sdRoundedRect(fragCoord + eps.yx - c2, s2, radius), 12.0);
-                    d_dn = smin(d_dn, sdRoundedRect(fragCoord - eps.yx - c2, s2, radius), 12.0);
-                    d_rt = smin(d_rt, sdRoundedRect(fragCoord + eps.xy - c2, s2, radius), 12.0);
-                    d_lf = smin(d_lf, sdRoundedRect(fragCoord - eps.xy - c2, s2, radius), 12.0);
+                    d_up = smin(d_up, sdRoundedRect(fragCoord + eps.yx - c2, s2, radius2), 12.0);
+                    d_dn = smin(d_dn, sdRoundedRect(fragCoord - eps.yx - c2, s2, radius2), 12.0);
+                    d_rt = smin(d_rt, sdRoundedRect(fragCoord + eps.xy - c2, s2, radius2), 12.0);
+                    d_lf = smin(d_lf, sdRoundedRect(fragCoord - eps.xy - c2, s2, radius2), 12.0);
                 }
 
                 float2 normal = normalize(float2(d_rt - d_lf, d_up - d_dn) + 0.0001);
                 
-                // 核心修复：factor 使用更陡峭的曲线，确保中心快速归零
-                // 我们将折射高度锁定在边缘的一小圈
-                float factor = smoothstep(-refractionHeight, 0.0, d);
+                float x = clamp(-d / refractionHeight, 0.0, 1.0);
+                // 确保中心折射系数为 0，防止出现脊线
+                float factor = 1.0 - (x * x * (3.0 - 2.0 * x)); 
+                
                 float2 distortion = normal * factor * refractionAmount;
                 float2 uv = fragCoord + distortion;
                 
+                // 优化：减少采样次数至 32 次，配合 IGN 抖动已足够平滑
                 half4 col = half4(0.0);
-                for (int i = 0; i < 32; i++) {
-                    float r = blurRadius * sqrt(float(i) / 32.0);
-                    float theta = float(i) * 2.39996;
-                    col += content.eval(uv + float2(cos(theta), sin(theta)) * r);
+                float noise = ign(fragCoord); 
+                float goldenAngle = 2.39996;
+                float samples = 32.0;
+                float2 caOffset = normal * factor * 1.0; 
+                
+                for (float i = 0.0; i < 32.0; i++) {
+                    float r = blurRadius * sqrt(i / samples);
+                    float theta = i * goldenAngle + noise * 6.28318;
+                    float2 offset = float2(cos(theta), sin(theta)) * r;
+                    float2 uvOffset = uv + offset;
+                    
+                    // 优化：减少 eval 调用次数，复用中间变量
+                    half4 cMid = content.eval(uvOffset);
+                    col.r += content.eval(uvOffset + caOffset).r;
+                    col.g += cMid.g;
+                    col.b += content.eval(uvOffset - caOffset).b;
+                    col.a += cMid.a;
                 }
-                col /= 32.0;
+                col /= samples;
 
-                // 材质增益：factor 为 0 的地方（即中心平整区）不应用任何 normal 相关偏移
-                if (isDark > 0.5) {
-                    col.rgb = mix(col.rgb, half3(0.0), 0.06);
-                    col.rgb += (normal.y * 0.04 * factor + 0.02);
-                } else {
-                    col.rgb = mix(col.rgb, half3(1.0), 0.22);
-                    col.rgb += (normal.y * 0.03 * factor + 0.01);
-                }
+                // 材质微调：通透度与高光优化
+                float spec = pow(1.0 - x, 4.0) * max(0.0, -normal.y);
+                col.rgb += (spec * 0.06); 
+                
+                // 2-5% 的 White Point 提升，增强玻璃质感
+                col.rgb *= (isDark > 0.5 ? 1.02 : 1.05);
+
                 return col;
             }
+
         """.trimIndent())
 
         shader.setFloatUniform("glassRect", rect.left, rect.top, rect.right, rect.bottom)
         if (rect2 != null) {
             shader.setFloatUniform("glassRect2", rect2.left, rect2.top, rect2.right, rect2.bottom)
             shader.setFloatUniform("hasRect2", 1f)
+            shader.setFloatUniform("radius2", radius2)
         } else {
             shader.setFloatUniform("glassRect2", 0f, 0f, 0f, 0f)
             shader.setFloatUniform("hasRect2", 0f)
+            shader.setFloatUniform("radius2", 0f)
         }
         shader.setFloatUniform("radius", radius)
         shader.setFloatUniform("refractionAmount", refractionAmount)
@@ -258,4 +275,5 @@ object LiquidGlassFactory {
 
         return RenderEffect.createRuntimeShaderEffect(shader, "content")
     }
+
 }

@@ -10,7 +10,9 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
-class LyricsAdapter(private val onLineClick: (Long) -> Unit) : RecyclerView.Adapter<LyricsAdapter.ViewHolder>() {
+class LyricsAdapter(
+    private val onItemClick: () -> Unit
+) : RecyclerView.Adapter<LyricsAdapter.ViewHolder>() {
 
     private fun Context.getColorFromAttr(@AttrRes attr: Int): Int {
         val typedValue = TypedValue()
@@ -28,16 +30,14 @@ class LyricsAdapter(private val onLineClick: (Long) -> Unit) : RecyclerView.Adap
     private var currentLineIndex = -1
 
     fun updateActiveLine(timeMs: Long): Int {
-        // 忽略元数据行 (timeMs == -1)
         val index = lines.indexOfLast { it.timeMs in 0..timeMs }
         if (index != currentLineIndex && index != -1) {
             val oldIndex = currentLineIndex
             currentLineIndex = index
             if (oldIndex != -1) notifyItemChanged(oldIndex)
             if (currentLineIndex != -1) notifyItemChanged(currentLineIndex)
-            return currentLineIndex
         }
-        return -1
+        return index
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -50,7 +50,7 @@ class LyricsAdapter(private val onLineClick: (Long) -> Unit) : RecyclerView.Adap
         val textView = holder.itemView.findViewById<TextView>(R.id.tvLyricLine)
         textView.text = line.text
         textView.textAlignment = View.TEXT_ALIGNMENT_CENTER
-        textView.setPadding(32, 48, 32, 48) // 增加间距
+        textView.setPadding(32, 16, 32, 16) // 进一步缩小垂直内边距 (从 28 降至 16)
         
         // 增加文字阴影，防止背景亮时看不清
         textView.setShadowLayer(4f, 2f, 2f, 0x80000000.toInt())
@@ -59,28 +59,25 @@ class LyricsAdapter(private val onLineClick: (Long) -> Unit) : RecyclerView.Adap
         
         if (isMetadata) {
             textView.setTextColor(0x99FFFFFF.toInt()) // 半透明白
-            textView.textSize = 15f
+            textView.textSize = 13f // 进一步缩小元数据字体
             textView.alpha = 1.0f
             textView.paint.isFakeBoldText = false
-            textView.setOnClickListener(null)
         } else {
             if (position == currentLineIndex) {
                 textView.setTextColor(android.graphics.Color.WHITE) // 纯白
-                textView.textSize = 24f
+                textView.textSize = 18f // 进一步缩小激活态字体 (从 20 降至 18)
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = true
             } else {
                 textView.setTextColor(0x66FFFFFF.toInt()) // 更明显的非激活态透明度
-                textView.textSize = 20f
+                textView.textSize = 15f // 进一步缩小非激活态字体 (从 17 降至 15)
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = false
             }
-            
-            holder.itemView.setOnClickListener {
-                if (line.timeMs >= 0) {
-                    onLineClick(line.timeMs)
-                }
-            }
+        }
+
+        holder.itemView.setOnClickListener {
+            onItemClick()
         }
     }
 

@@ -21,7 +21,8 @@
 
     <!-- Status and Messages -->
     <string name="loading_lyrics">Loading lyrics…</string>
-    <string name="transcoding">Transcoding: </string>
+    <string name="transcoding">Transcoding: %1$s %2$dkbps</string>
+    <string name="source_playback">Source: %1$s %2$dkbps</string>
     <string name="no_lyrics">Online lyrics not found</string>
     <string name="unknown_song">Unknown Song</string>
     <string name="unknown_artist">Unknown Artist</string>

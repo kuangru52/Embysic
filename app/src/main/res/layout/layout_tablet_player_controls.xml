@@ -2,58 +2,23 @@
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/player_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/black"
-    android:clipToOutline="true"
     android:clipChildren="false"
     android:clipToPadding="false">
-
-    <ImageView
-        android:id="@+id/ivBlurBackground"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:scaleType="centerCrop"
-        android:alpha="0.6"
-        android:src="@drawable/bg_superman"
-        android:contentDescription="@null" />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:background="#40000000" />
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
-        android:paddingHorizontal="24dp"
+        android:paddingHorizontal="32dp"
         android:clipChildren="false"
         android:clipToPadding="false">
 
         <View
             android:id="@+id/statusBarSpacer"
             android:layout_width="match_parent"
-            android:layout_height="0dp" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvLyrics"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:visibility="gone"
-            android:layout_marginTop="64dp"
-            android:layout_marginBottom="24dp"
-            android:clipToPadding="true"
-            android:overScrollMode="never" />
-
-        <RelativeLayout
-            android:id="@+id/rlTopBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="16dp" />
+            android:layout_height="16dp" />
 
         <FrameLayout
             android:id="@+id/contentContainer"
@@ -67,20 +32,20 @@
                 android:id="@+id/rlDiscContainer"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:translationY="30dp"
+                android:translationY="-40dp"
                 android:clipChildren="false"
                 android:clipToPadding="false">
 
                 <View
-                    android:layout_width="310dp"
-                    android:layout_height="310dp"
+                    android:layout_width="280dp"
+                    android:layout_height="280dp"
                     android:layout_gravity="center"
                     android:background="@drawable/bg_player_disc_ring" />
 
                 <RelativeLayout
                     android:id="@+id/rlDisc"
-                    android:layout_width="300dp"
-                    android:layout_height="300dp"
+                    android:layout_width="270dp"
+                    android:layout_height="270dp"
                     android:layout_gravity="center">
 
                     <ImageView
@@ -93,30 +58,32 @@
 
                     <androidx.cardview.widget.CardView
                         android:id="@+id/cvAlbumArt"
-                        android:layout_width="200dp"
-                        android:layout_height="200dp"
+                        android:layout_width="180dp"
+                        android:layout_height="180dp"
                         android:layout_centerInParent="true"
-                        app:cardCornerRadius="100dp"
+                        app:cardCornerRadius="90dp"
                         app:cardElevation="0dp">
 
                         <ImageView
                             android:id="@+id/ivAlbumArt"
                             android:layout_width="match_parent"
                             android:layout_height="match_parent"
-                            android:scaleType="centerCrop" />
+                            android:scaleType="centerCrop"
+                            android:contentDescription="@null" />
                     </androidx.cardview.widget.CardView>
                 </RelativeLayout>
 
                 <ImageView
                     android:id="@+id/ivNeedle"
-                    android:layout_width="132dp"
-                    android:layout_height="161dp"
+                    android:layout_width="120dp"
+                    android:layout_height="140dp"
                     android:layout_gravity="center"
-                    android:translationX="30dp"
-                    android:translationY="-145dp"
+                    android:translationX="25dp"
+                    android:translationY="-125dp"
                     android:src="@drawable/styli2"
                     android:transformPivotX="25dp"
-                    android:transformPivotY="25dp" />
+                    android:transformPivotY="25dp"
+                    android:contentDescription="@null" />
             </FrameLayout>
         </FrameLayout>
 
@@ -124,22 +91,26 @@
             android:id="@+id/flHintContainer"
             android:layout_width="match_parent"
             android:layout_height="32dp"
-            android:layout_marginTop="-8dp"
-            android:layout_marginBottom="4dp">
+            android:layout_marginTop="8dp">
+
             <LinearLayout
                 android:id="@+id/llVolumeHint"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:gravity="center"
+                android:orientation="horizontal"
                 android:visibility="invisible">
+
                 <ImageView
                     android:layout_width="16dp"
                     android:layout_height="16dp"
                     android:src="@drawable/ic_music_note"
-                    app:tint="@android:color/white" />
+                    app:tint="@android:color/white"
+                    android:contentDescription="@null" />
+
                 <SeekBar
                     android:id="@+id/sbVolumeHint"
-                    android:layout_width="180dp"
+                    android:layout_width="200dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
                     android:paddingStart="0dp"
@@ -151,6 +122,7 @@
                     android:maxHeight="2.5dp"
                     android:minHeight="2.5dp" />
             </LinearLayout>
+
             <TextView
                 android:id="@+id/tvPlayModeHint"
                 android:layout_width="wrap_content"
@@ -158,73 +130,85 @@
                 android:layout_gravity="center"
                 android:textColor="#CCFFFFFF"
                 android:textSize="14sp"
-                android:visibility="invisible" />
+                android:visibility="invisible"
+                tools:text="单曲循环" />
         </FrameLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="bottom"
+            android:layout_marginTop="8dp">
+
             <LinearLayout
                 android:id="@+id/llTitleContainer"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:orientation="vertical">
+
                 <TextView
                     android:id="@+id/tvTitle"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="@android:color/white"
-                    android:textSize="24sp"
+                    android:textSize="28sp"
                     android:textStyle="bold"
                     android:maxLines="1"
                     android:ellipsize="marquee"
+                    android:marqueeRepeatLimit="marquee_forever"
+                    android:scrollHorizontally="true"
+                    android:includeFontPadding="false"
                     android:shadowColor="#80000000"
-                    android:shadowRadius="4" />
+                    android:shadowDx="0"
+                    android:shadowDy="2"
+                    android:shadowRadius="4"
+                    tools:text="Song Title" />
+
                 <TextView
                     android:id="@+id/tvArtist"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:textColor="#B3FFFFFF"
-                    android:textSize="16sp"
-                    android:layout_marginTop="12dp"
+                    android:textSize="20sp"
+                    android:layout_marginTop="8dp"
+                    android:includeFontPadding="false"
                     android:shadowColor="#80000000"
-                    android:shadowRadius="4" />
+                    android:shadowDx="0"
+                    android:shadowDy="2"
+                    android:shadowRadius="4"
+                    tools:text="Artist Name" />
+
+                <TextView
+                    android:id="@+id/tvAudioQuality"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textColor="#B3FFFFFF"
+                    android:textSize="12sp"
+                    android:layout_marginTop="8dp"
+                    android:includeFontPadding="false"
+                    android:paddingHorizontal="0dp"
+                    android:paddingVertical="0dp"
+                    tools:text="正在转码: FLAC 320kbps" />
             </LinearLayout>
+
             <ImageView
                 android:id="@+id/btnMore"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
                 android:layout_marginStart="16dp"
+                android:layout_marginBottom="6dp"
                 android:src="@drawable/ic_heart_border"
-                app:tint="#66FFFFFF" />
+                app:tint="#66FFFFFF"
+                android:contentDescription="@null" />
         </LinearLayout>
-
-        <TextView
-            android:id="@+id/tvAudioQuality"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textColor="#B3FFFFFF"
-            android:textSize="11sp"
-            android:layout_marginTop="12dp" />
-
-        <ProgressBar
-            android:id="@+id/pbDownload"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="2dp"
-            android:layout_marginTop="12dp"
-            android:visibility="gone"
-            android:progressTint="@android:color/white"
-            android:progressBackgroundTint="#33FFFFFF" />
 
         <SeekBar
             android:id="@+id/seekBar"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
             android:progressTint="@android:color/white"
             android:thumbTint="@android:color/white"
             android:paddingStart="0dp"
@@ -242,11 +226,12 @@
                 android:textSize="12sp" />
             <ImageView
                 android:id="@+id/btnPlayMode"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
+                android:layout_width="26dp"
+                android:layout_height="26dp"
                 android:layout_centerInParent="true"
                 android:src="@drawable/ic_repeat_vector"
-                app:tint="#B3FFFFFF" />
+                app:tint="#B3FFFFFF"
+                android:contentDescription="@null" />
             <TextView
                 android:id="@+id/tvTotalTime"
                 android:layout_width="wrap_content"
@@ -265,47 +250,39 @@
             android:layout_marginBottom="8dp">
             <ImageView
                 android:id="@+id/btnPrev"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:src="@drawable/ic_skip_previous_vector"
-                app:tint="@android:color/white" />
+                app:tint="@android:color/white"
+                android:contentDescription="@null" />
             <ImageView
                 android:id="@+id/btnPlayPause"
-                android:layout_width="72dp"
-                android:layout_height="72dp"
+                android:layout_width="80dp"
+                android:layout_height="80dp"
                 android:src="@drawable/ic_play_vector"
-                android:layout_marginHorizontal="32dp"
-                app:tint="@android:color/white" />
+                android:layout_marginHorizontal="40dp"
+                app:tint="@android:color/white"
+                android:contentDescription="@null" />
             <ImageView
                 android:id="@+id/btnNext"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
                 android:src="@drawable/ic_skip_next_vector"
-                app:tint="@android:color/white" />
+                app:tint="@android:color/white"
+                android:contentDescription="@null" />
         </LinearLayout>
 
         <FrameLayout
             android:id="@+id/bottomTouchArea"
             android:layout_width="match_parent"
             android:layout_height="64dp"
-            android:layout_marginHorizontal="-24dp"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="20dp">
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="16dp">
             <com.kuangru52.embysic.VolumeDotView
                 android:id="@+id/volumeDotView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:alpha="0" />
         </FrameLayout>
-
-        <View
-            android:id="@+id/navigationBarSpacer"
-            android:layout_width="match_parent"
-            android:layout_height="0dp" />
     </LinearLayout>
-
-    <com.kuangru52.embysic.HeartLayout
-        android:id="@+id/heartLayout"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
 </FrameLayout>

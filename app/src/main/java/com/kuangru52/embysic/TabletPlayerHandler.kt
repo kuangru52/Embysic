@@ -226,21 +226,39 @@ class TabletPlayerHandler(
         val mediaId = item.mediaId
         val artworkUri = metadata.artworkUri
 
-        // 优先检查本地 Netease 封面缓存
-        val prefs = activity.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
-        val cachedCover = prefs.getString(mediaId, null)
-        val finalArtworkUri = if (cachedCover != null) android.net.Uri.parse(cachedCover) else artworkUri
-
-        ivAlbumArt?.load(finalArtworkUri) {
+        // 封面加载策略：Emby原生(内置/服务器) > 本地网络缓存 > 实时网络搜索
+        ivAlbumArt?.load(artworkUri) {
             crossfade(true)
             placeholder(R.drawable.disk)
             error(R.drawable.disk)
-        }
-        searchNeteaseCover(mediaId, metadata.title?.toString(), metadata.artist?.toString())
-        
-        ivBlurBackground?.load(finalArtworkUri) {
-            crossfade(true)
-            transformations(BlurTransformation(activity, 25, 3))
+            listener(
+                onSuccess = { _, _ ->
+                    ivBlurBackground?.load(artworkUri) {
+                        crossfade(true)
+                        transformations(BlurTransformation(activity, 25, 3))
+                    }
+                },
+                onError = { _, _ ->
+                    // 原生封面失败，尝试读取缓存的网络封面
+                    val prefs = activity.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
+                    val cachedCover = prefs.getString(mediaId, null)
+                    if (cachedCover != null) {
+                        val cachedUri = android.net.Uri.parse(cachedCover)
+                        ivAlbumArt?.load(cachedUri) {
+                            crossfade(true)
+                            placeholder(R.drawable.disk)
+                            error(R.drawable.disk)
+                        }
+                        ivBlurBackground?.load(cachedUri) {
+                            crossfade(true)
+                            transformations(BlurTransformation(activity, 25, 3))
+                        }
+                    } else {
+                        // 既没有原生也没有缓存，搜索网络
+                        searchNeteaseCover(mediaId, metadata.title?.toString(), metadata.artist?.toString())
+                    }
+                }
+            )
         }
 
         val extras = metadata.extras
@@ -509,7 +527,7 @@ class TabletPlayerHandler(
     }
 
     private fun searchNeteaseLyrics(mediaId: String, title: String?, artist: String?) {
-        val cleanedTitle = title?.replace(Regex("\\s*[([\\[].*[\\])]]"), "")?.trim() ?: ""
+        val cleanedTitle = title?.replace(Regex("\\s*([(\\[].*?[)\\]])"), "")?.trim() ?: ""
         val isUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
         val query = if (isUnknown) cleanedTitle else "$cleanedTitle $artist"
         if (query.isEmpty()) return
@@ -522,43 +540,42 @@ class TabletPlayerHandler(
                 .create(NeteaseApiService::class.java)
 
             try {
-                val searchResponse = neteaseApi.searchSong(query)
-                val songId = searchResponse.result?.songs?.firstOrNull()?.id
+                // 增加搜索限制到 20 条，以便从中择优
+                val searchResponse = neteaseApi.searchSong(query, limit = 20)
+                val songs = searchResponse.result?.songs ?: throw Exception("Not found")
 
-                if (songId != null) {
-                    val lrcResponse = neteaseApi.getLyric(songId)
-                    val lyricText = lrcResponse.lrc?.lyric
-                    if (!lyricText.isNullOrEmpty()) {
-                        val metadata = mutableListOf(LrcLine(-1, title ?: "Unknown"), LrcLine(-1, artist ?: "Unknown"))
-                        val mainLyrics = LrcParser.parse(lyricText)
-                        
-                        val tlyricText = lrcResponse.tlyric?.lyric
-                        val finalLines = if (!tlyricText.isNullOrBlank()) {
-                            metadata + mergeLyrics(mainLyrics, LrcParser.parse(tlyricText))
-                        } else {
-                            metadata + mainLyrics
-                        }
+                // 智能匹配算法
+                val currentDuration = controller.duration
+                val bestMatch = LyricUtils.findBestMatch(songs, cleanedTitle, artist, currentDuration)
+                    ?: throw Exception("No suitable match")
 
-                        PlayerDialogFragment.lyricsCache[mediaId] = finalLines
-                        activity.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE).edit {
-                            putString(mediaId, com.google.gson.Gson().toJson(finalLines))
-                        }
-                        if (controller.currentMediaItem?.mediaId == mediaId) {
-                            lyricsAdapter?.lines = finalLines
-                        }
+                val lrcResponse = neteaseApi.getLyric(bestMatch.id)
+                val lyricText = lrcResponse.lrc?.lyric
+                if (!lyricText.isNullOrEmpty()) {
+                    val metadata = mutableListOf(LrcLine(-1, title ?: "Unknown"), LrcLine(-1, artist ?: "Unknown"), LrcLine(-1, "来源: 网易云音乐 (智能匹配)"))
+                    val mainLyrics = LrcParser.parse(lyricText)
+                    
+                    val tlyricText = lrcResponse.tlyric?.lyric
+                    val finalLines = if (!tlyricText.isNullOrBlank()) {
+                        metadata + LyricUtils.mergeLyrics(mainLyrics, LrcParser.parse(tlyricText))
+                    } else {
+                        metadata + mainLyrics
+                    }
+
+                    PlayerDialogFragment.lyricsCache[mediaId] = finalLines
+                    activity.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE).edit {
+                        putString(mediaId, com.google.gson.Gson().toJson(finalLines))
+                    }
+                    if (controller.currentMediaItem?.mediaId == mediaId) {
+                        lyricsAdapter?.lines = finalLines
                     }
                 }
             } catch (e: Exception) {
-                e.printStackTrace()
+                // 如果带歌手搜不到，尝试只搜标题
+                if (!isUnknown && cleanedTitle.isNotEmpty() && !query.equals(cleanedTitle)) {
+                    searchNeteaseLyrics(mediaId, cleanedTitle, null)
+                }
             }
-        }
-    }
-
-    private fun mergeLyrics(main: List<LrcLine>, trans: List<LrcLine>): List<LrcLine> {
-        val transMap = trans.filter { it.timeMs >= 0 }.associateBy { it.timeMs }
-        return main.filter { it.timeMs >= 0 }.map { line ->
-            val tLine = transMap[line.timeMs]
-            if (tLine != null && tLine.text.isNotBlank() && tLine.text != line.text) LrcLine(line.timeMs, "${line.text}\n${tLine.text}") else line
         }
     }
 
@@ -574,7 +591,7 @@ class TabletPlayerHandler(
             val isUserScrolling = (rvLyricsRight?.getTag(R.id.bottom_container) as? Boolean) ?: false
             lyricsAdapter?.updateActiveLine(current)?.let { index ->
                 if (index != -1 && !isUserScrolling) {
-                    (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 3)
+                    (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 2)
                 }
             }
         } else {
@@ -590,7 +607,7 @@ class TabletPlayerHandler(
                 val isUserScrolling = (rvLyricsRight?.getTag(R.id.bottom_container) as? Boolean) ?: false
                 lyricsAdapter?.updateActiveLine(current)?.let { index ->
                     if (index != -1 && !isUserScrolling) {
-                        (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 3)
+                        (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 2)
                     }
                 }
             }

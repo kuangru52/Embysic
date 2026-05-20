@@ -672,26 +672,38 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
             preloadLyrics(itemId, it.title?.toString(), it.artist?.toString())
 
-            // 优先检查本地 Netease 封面缓存，加速显示
-            val context = context
-            val cachedCover = if (context != null) {
-                context.getSharedPreferences("netease_covers", AppCompatActivity.MODE_PRIVATE)
-                    .getString(itemId, null)
-            } else null
-
-            val finalArtworkUri = if (cachedCover != null) Uri.parse(cachedCover) else artworkUri
-
-            ivCover.load(finalArtworkUri) {
+            // 封面加载逻辑：Emby原生(内置) > 本地网络缓存 > 实时网络搜索
+            ivCover.load(artworkUri) {
                 crossfade(true)
                 placeholder(R.drawable.disk)
                 error(R.drawable.disk)
-                listener(onError = { _, _ ->
-                    // 如果原图和缓存都失败了，再尝试搜索
-                    searchNeteaseCover(itemId, it.title?.toString(), it.artist?.toString())
-                })
+                listener(
+                    onSuccess = { _, _ ->
+                        updateBlurBackground(artworkUri)
+                    },
+                    onError = { _, _ ->
+                        // 如果原生封面失败，检查本地缓存的网络封面
+                        val context = context
+                        val cachedCover = if (context != null) {
+                            context.getSharedPreferences("netease_covers", AppCompatActivity.MODE_PRIVATE)
+                                .getString(itemId, null)
+                        } else null
+
+                        if (cachedCover != null) {
+                            val cachedUri = Uri.parse(cachedCover)
+                            ivCover.load(cachedUri) {
+                                crossfade(true)
+                                placeholder(R.drawable.disk)
+                                error(R.drawable.disk)
+                                listener(onSuccess = { _, _ -> updateBlurBackground(cachedUri) })
+                            }
+                        } else {
+                            // 既没有原生也没有缓存，则搜索网络
+                            searchNeteaseCover(itemId, it.title?.toString(), it.artist?.toString())
+                        }
+                    }
+                )
             }
-            
-            updateBlurBackground(finalArtworkUri)
         }
     }
 
@@ -970,25 +982,31 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
     }
 
     private fun searchNeteaseLyrics(itemId: String, title: String?, artist: String?) {
-        val cleanedTitle = title?.replace(Regex("\\s*[([\\[].*[\\])]]"), "")?.trim() ?: ""
+        val cleanedTitle = title?.replace(Regex("\\s*([(\\[].*?[)\\]])"), "")?.trim() ?: ""
         val isUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
         val query = if (isUnknown) cleanedTitle else "$cleanedTitle $artist"
         if (query.isEmpty()) { showNoLyrics(itemId, title, artist); return }
 
         lifecycleScope.launch {
             try {
-                val searchResponse = neteaseApi.searchSong(query)
-                val song = searchResponse.result?.songs?.firstOrNull() ?: throw Exception("Not found")
-                val lyricResponse = neteaseApi.getLyric(song.id)
+                // 增加 limit 以便进行多结果择优匹配
+                val searchResponse = neteaseApi.searchSong(query, limit = 20)
+                val songs = searchResponse.result?.songs ?: throw Exception("Not found")
+                
+                // 智能匹配：寻找最接近的歌曲
+                val currentDuration = player?.duration ?: 0L
+                val bestMatch = LyricUtils.findBestMatch(songs, cleanedTitle, artist, currentDuration)
+                    ?: throw Exception("No good match")
+
+                val lyricResponse = neteaseApi.getLyric(bestMatch.id)
                 val lrcText = lyricResponse.lrc?.lyric
                 if (!lrcText.isNullOrBlank()) {
                     val metadata = mutableListOf(LrcLine(-1, title ?: getString(R.string.unknown_song)), LrcLine(-1, artist ?: getString(R.string.unknown_artist)), LrcLine(-1, getString(R.string.source_netease)))
                     val mainLyrics = LrcParser.parse(lrcText)
                     val tlyricText = lyricResponse.tlyric?.lyric
-                    val finalLines = if (!tlyricText.isNullOrBlank()) metadata + mergeLyrics(mainLyrics, LrcParser.parse(tlyricText)) else metadata + mainLyrics
+                    val finalLines = if (!tlyricText.isNullOrBlank()) metadata + LyricUtils.mergeLyrics(mainLyrics, LrcParser.parse(tlyricText)) else metadata + mainLyrics
                     lyricsCache[itemId] = finalLines
                     
-                    // 使用 KTX 优化磁盘保存
                     context?.getSharedPreferences("lyrics_disk_cache", AppCompatActivity.MODE_PRIVATE)?.edit {
                         putString(itemId, Gson().toJson(finalLines))
                     }
@@ -1010,14 +1028,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         lyricsCache[itemId] = finalLines
         if (rvLyrics.isVisible && player?.currentMediaItem?.mediaId == itemId) {
             lyricsAdapter.lines = finalLines
-        }
-    }
-
-    private fun mergeLyrics(main: List<LrcLine>, trans: List<LrcLine>): List<LrcLine> {
-        val transMap = trans.filter { it.timeMs >= 0 }.associateBy { it.timeMs }
-        return main.filter { it.timeMs >= 0 }.map { line ->
-            val tLine = transMap[line.timeMs]
-            if (tLine != null && tLine.text.isNotBlank() && tLine.text != line.text) LrcLine(line.timeMs, "${line.text}\n${tLine.text}") else line
         }
     }
 

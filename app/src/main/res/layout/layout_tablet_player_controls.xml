@@ -18,34 +18,34 @@
         <View
             android:id="@+id/statusBarSpacer"
             android:layout_width="match_parent"
-            android:layout_height="16dp" />
+            android:layout_height="8dp" />
 
-        <FrameLayout
-            android:id="@+id/contentContainer"
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:clipChildren="false"
-            android:clipToPadding="false">
+            <FrameLayout
+                android:id="@+id/contentContainer"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipChildren="false"
+                android:clipToPadding="false">
 
             <FrameLayout
                 android:id="@+id/rlDiscContainer"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:translationY="-40dp"
+                android:translationY="40dp"
                 android:clipChildren="false"
                 android:clipToPadding="false">
 
                 <View
-                    android:layout_width="280dp"
-                    android:layout_height="280dp"
+                    android:layout_width="290dp"
+                    android:layout_height="290dp"
                     android:layout_gravity="center"
                     android:background="@drawable/bg_player_disc_ring" />
 
                 <RelativeLayout
                     android:id="@+id/rlDisc"
-                    android:layout_width="270dp"
-                    android:layout_height="270dp"
+                    android:layout_width="280dp"
+                    android:layout_height="280dp"
                     android:layout_gravity="center">
 
                     <ImageView
@@ -78,12 +78,13 @@
                     android:layout_width="120dp"
                     android:layout_height="140dp"
                     android:layout_gravity="center"
-                    android:translationX="25dp"
-                    android:translationY="-125dp"
+                    android:contentDescription="@null"
                     android:src="@drawable/styli2"
                     android:transformPivotX="25dp"
                     android:transformPivotY="25dp"
-                    android:contentDescription="@null" />
+                    android:translationX="35dp"
+                    android:translationY="-135dp" />
+
             </FrameLayout>
         </FrameLayout>
 

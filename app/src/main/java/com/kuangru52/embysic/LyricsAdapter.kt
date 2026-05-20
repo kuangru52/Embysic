@@ -8,6 +8,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.content.res.Configuration
 import androidx.recyclerview.widget.RecyclerView
 
 class LyricsAdapter(
@@ -57,20 +58,22 @@ class LyricsAdapter(
         
         val isMetadata = line.timeMs == -1L
         
+        val isLandscape = holder.itemView.context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        
         if (isMetadata) {
             textView.setTextColor(0x99FFFFFF.toInt()) // 半透明白
-            textView.textSize = 13f // 进一步缩小元数据字体
+            textView.textSize = if (isLandscape) 16f else 13f
             textView.alpha = 1.0f
             textView.paint.isFakeBoldText = false
         } else {
             if (position == currentLineIndex) {
                 textView.setTextColor(android.graphics.Color.WHITE) // 纯白
-                textView.textSize = 18f // 进一步缩小激活态字体 (从 20 降至 18)
+                textView.textSize = if (isLandscape) 24f else 18f
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = true
             } else {
                 textView.setTextColor(0x66FFFFFF.toInt()) // 更明显的非激活态透明度
-                textView.textSize = 15f // 进一步缩小非激活态字体 (从 17 降至 15)
+                textView.textSize = if (isLandscape) 20f else 15f
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = false
             }

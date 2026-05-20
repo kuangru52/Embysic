@@ -255,15 +255,21 @@ class LibraryAdapter(
                     tvIndex.setTextColor(highlightColor)
                     tvName.setTextColor(highlightColor)
                     tvArtist.setTextColor(highlightColor)
+                    tvDuration.setTextColor(highlightColor)
+                    tvDuration.alpha = 1.0f
                 } else if (isCurrentAlbumOrParent) {
                     tvIndex.visibility = View.GONE 
                     tvName.setTextColor(highlightColor)
                     tvArtist.setTextColor(highlightColor)
+                    tvDuration.setTextColor(highlightColor)
+                    tvDuration.alpha = 1.0f
                     ivIcon.colorFilter = folderHighlightMatrix
                 } else if (isFolderLike) {
                     tvIndex.visibility = View.GONE
                     tvName.setTextColor(currentPrimary)
                     tvArtist.setTextColor(currentSecondary)
+                    tvDuration.setTextColor(currentPrimary)
+                    tvDuration.alpha = 1.0f
                 } else {
                     tvIndex.visibility = View.VISIBLE
                     tvIndex.background = null
@@ -271,6 +277,8 @@ class LibraryAdapter(
                     tvIndex.setTextColor(currentSecondary)
                     tvName.setTextColor(currentPrimary)
                     tvArtist.setTextColor(currentSecondary)
+                    tvDuration.setTextColor(currentPrimary)
+                    tvDuration.alpha = 1.0f
                 }
             }
 

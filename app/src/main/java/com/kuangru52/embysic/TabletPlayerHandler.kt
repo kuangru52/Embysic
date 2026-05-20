@@ -108,7 +108,7 @@ class TabletPlayerHandler(
         llVolumeHint = root.findViewById(R.id.llVolumeHint)
         heartLayout = root.findViewById(R.id.heartLayout)
 
-        ivNeedle?.rotation = -25f
+        ivNeedle?.rotation = -35f
 
         setupLyrics()
         setupListeners()

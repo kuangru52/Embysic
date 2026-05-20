@@ -511,31 +511,45 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         val currentRepeatMode = p.repeatMode
         val isShuffle = p.shuffleModeEnabled
 
-        // 目标模式：单曲 (ONE) -> 列表 (ALL, shuffle=false) -> 随机 (ALL, shuffle=true)
-        val (nextRepeat, nextShuffle) = when {
+        // 目标模式确定
+        val nextRepeat: Int
+        val nextShuffle: Boolean
+        val hint: String
+
+        when {
             isShuffle -> {
                 // 当前是随机 -> 切到单曲循环
-                Player.REPEAT_MODE_ONE to false
+                nextRepeat = Player.REPEAT_MODE_ONE
+                nextShuffle = false
+                hint = getString(R.string.repeat_one)
             }
             currentRepeatMode == Player.REPEAT_MODE_ONE -> {
                 // 当前是单曲 -> 切到列表循环
-                Player.REPEAT_MODE_ALL to false
+                nextRepeat = Player.REPEAT_MODE_ALL
+                nextShuffle = false
+                hint = getString(R.string.repeat_all)
             }
             else -> {
                 // 当前是列表循环或其他 -> 切到随机播放
-                Player.REPEAT_MODE_ALL to true
+                nextRepeat = Player.REPEAT_MODE_ALL
+                nextShuffle = true
+                hint = getString(R.string.shuffle)
             }
         }
 
+        // 1. 设置状态
         p.repeatMode = nextRepeat
         p.shuffleModeEnabled = nextShuffle
+        
+        // 2. 立即更新 UI，避免 MediaController 异步延迟导致的图标闪烁或错误
+        updatePlayModeUI(nextShuffle, nextRepeat, hint)
     }
 
-    private fun showPlayModeHint() {
+    private fun showPlayModeHint(text: String? = null) {
         val p = player ?: return
         if (!isAdded) return
         
-        val modeText = when {
+        val modeText = text ?: when {
             p.shuffleModeEnabled -> getString(R.string.shuffle)
             p.repeatMode == Player.REPEAT_MODE_ONE -> getString(R.string.repeat_one)
             else -> getString(R.string.repeat_all)
@@ -550,15 +564,22 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
     private fun updatePlayModeIcon() {
         val p = player ?: return
+        updatePlayModeUI(p.shuffleModeEnabled, p.repeatMode, null)
+    }
+
+    private fun updatePlayModeUI(shuffleEnabled: Boolean, repeatMode: Int, hint: String?) {
         if (!isAdded) return
         
-        if (p.shuffleModeEnabled) {
-            btnPlayMode.setImageResource(R.drawable.ic_shuffle_vector)
-        } else {
-            when (p.repeatMode) {
-                Player.REPEAT_MODE_ONE -> btnPlayMode.setImageResource(R.drawable.ic_repeat_one_vector)
-                else -> btnPlayMode.setImageResource(R.drawable.ic_repeat_vector)
-            }
+        // 优先级：随机模式优先于循环模式图标
+        val resId = when {
+            shuffleEnabled -> R.drawable.ic_shuffle_vector
+            repeatMode == Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one_vector
+            else -> R.drawable.ic_repeat_vector
+        }
+        btnPlayMode.setImageResource(resId)
+        
+        if (hint != null) {
+            showPlayModeHint(hint)
         }
     }
 

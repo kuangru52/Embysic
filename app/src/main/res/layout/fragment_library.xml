@@ -15,7 +15,8 @@
             android:id="@+id/ivFragmentBackground"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:scaleType="centerCrop" />
+            android:scaleType="centerCrop"
+            android:src="@drawable/bg_superman" />
 
         <androidx.constraintlayout.widget.ConstraintLayout
             android:layout_width="match_parent"

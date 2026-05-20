@@ -156,7 +156,6 @@ class LibraryFragment : Fragment() {
     private fun syncBackground() {
         if (!isAdded) return
         
-        // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
         val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 && 
                           resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         
@@ -165,12 +164,29 @@ class LibraryFragment : Fragment() {
             return
         }
 
+        // 核心修复 1：物理遮挡。
+        // 设置一个纯黑背景底色。即便图片还没加载出来，也能彻底遮挡下层文字。
+        ivFragmentBackground.setBackgroundColor(android.graphics.Color.BLACK) 
+        
         val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
         if (activityBg != null && activityBg.drawable != null) {
-            ivFragmentBackground.setImageDrawable(activityBg.drawable)
-            ivFragmentBackground.alpha = activityBg.alpha
-            ivFragmentBackground.visibility = View.VISIBLE
+            // 核心修复 2：克隆 Drawable 状态，并强制不透明。
+            // 避免 Drawable 级别透明度污染
+            val constantState = activityBg.drawable.constantState
+            if (constantState != null) {
+                val newDrawable = constantState.newDrawable().mutate()
+                newDrawable.alpha = 255 
+                ivFragmentBackground.setImageDrawable(newDrawable)
+            } else {
+                ivFragmentBackground.setImageDrawable(activityBg.drawable)
+            }
+        } else {
+            ivFragmentBackground.setImageResource(R.drawable.bg_superman)
         }
+        
+        // 核心修复 3：强制 ImageView 视图层 Alpha 为 1.0
+        ivFragmentBackground.alpha = 1.0f 
+        ivFragmentBackground.visibility = View.VISIBLE
     }
 
     private fun updatePlaybackState(mediaItem: MediaItem?) {
@@ -394,9 +410,13 @@ class LibraryFragment : Fragment() {
                     )
                 }
 
-                // 1. 过滤：排除名为 "Artwork" 的文件夹
+                // 1. 过滤：排除名为 "Artwork" 的文件夹，以及没有任何音频内容的空文件夹（例如仅含图片的文件夹）
                 val filteredItems = response.Items.filter { item ->
                     if (item.Name == "Artwork") return@filter false
+                    // 如果是文件夹，检查其递归子项计数。如果为 0，说明该文件夹内没有音频或可播放内容。
+                    if (item.IsFolder && item.Type != "MusicArtist" && (item.RecursiveItemCount ?: 0) <= 0 && (item.ChildCount ?: 0) <= 0) {
+                        return@filter false
+                    }
                     true
                 }
 
@@ -449,6 +469,11 @@ class LibraryFragment : Fragment() {
 
     private fun playMusic(item: EmbyItem, allItems: List<EmbyItem>) {
         val controller = (activity as? HomeActivity)?.mediaController ?: return
+        
+        // 备份当前模式
+        val currentRepeatMode = controller.repeatMode
+        val currentShuffleMode = controller.shuffleModeEnabled
+
         val currentMediaItem = controller.currentMediaItem
         val currentSessionId = currentMediaItem?.mediaMetadata?.extras?.getString("play_session_id")
         val currentId = currentMediaItem?.mediaId
@@ -457,21 +482,23 @@ class LibraryFragment : Fragment() {
         val isSameSong = item.Id == currentId
         
         val mediaItems = playableItems.map { song ->
-            // 如果是同一首歌，或者我们在无缝更新播放列表，复用当前 SessionId
             val overrideId = if (song.Id == currentId) currentSessionId else null
             MediaItemUtils.buildMediaItem(song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
         }
         
         if (isSameSong) {
-            // 无缝更新播放列表，不重置位置，Media3 会自动匹配 MediaId 并保持播放
             controller.setMediaItems(mediaItems, false)
         } else {
-            // 切换到新歌
             val startIndex = playableItems.indexOfFirst { it.Id == item.Id }.coerceAtLeast(0)
             controller.setMediaItems(mediaItems, startIndex, 0L)
             controller.prepare()
             controller.play()
         }
+
+        // 核心修正：在 Media3 更新列表后，强制写回之前的播放模式，防止其重置为列表循环
+        controller.repeatMode = currentRepeatMode
+        controller.shuffleModeEnabled = currentShuffleMode
+
         (activity as? HomeActivity)?.showPlayer()
     }
 

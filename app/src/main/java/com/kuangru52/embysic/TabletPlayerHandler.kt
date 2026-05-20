@@ -622,33 +622,56 @@ class TabletPlayerHandler(
         val isShuffle = controller.shuffleModeEnabled
         val repeatMode = controller.repeatMode
         
+        // 目标模式确定
+        val nextShuffle: Boolean
+        val nextRepeat: Int
+        val hint: String
+
         when {
             isShuffle -> {
-                controller.shuffleModeEnabled = false
-                controller.repeatMode = Player.REPEAT_MODE_ONE
-                showPlayModeHint(activity.getString(R.string.repeat_one))
+                nextShuffle = false
+                nextRepeat = Player.REPEAT_MODE_ONE
+                hint = activity.getString(R.string.repeat_one)
             }
             repeatMode == Player.REPEAT_MODE_ONE -> {
-                controller.repeatMode = Player.REPEAT_MODE_ALL
-                controller.shuffleModeEnabled = false
-                showPlayModeHint(activity.getString(R.string.repeat_all))
+                nextShuffle = false
+                nextRepeat = Player.REPEAT_MODE_ALL
+                hint = activity.getString(R.string.repeat_all)
             }
             else -> {
-                controller.repeatMode = Player.REPEAT_MODE_ALL
-                controller.shuffleModeEnabled = true
-                showPlayModeHint(activity.getString(R.string.shuffle))
+                nextShuffle = true
+                nextRepeat = Player.REPEAT_MODE_ALL
+                hint = activity.getString(R.string.shuffle)
             }
         }
-        updatePlayModeIcon()
+
+        // 1. 立即更新控制器状态
+        controller.shuffleModeEnabled = nextShuffle
+        controller.repeatMode = nextRepeat
+
+        // 2. 立即更新 UI，不等待回调，解决状态同步延迟导致的图标错误
+        updatePlayModeUI(nextShuffle, nextRepeat, hint)
     }
 
     private fun updatePlayModeIcon() {
+        // 用于外部（如初始化或监听到变化）调用的通用刷新
+        updatePlayModeUI(controller.shuffleModeEnabled, controller.repeatMode, null)
+    }
+
+    private fun updatePlayModeUI(shuffleEnabled: Boolean, repeatMode: Int, hint: String?) {
         val resId = when {
-            controller.shuffleModeEnabled -> R.drawable.ic_shuffle_vector
-            controller.repeatMode == Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one_vector
+            shuffleEnabled -> R.drawable.ic_shuffle_vector
+            repeatMode == Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one_vector
             else -> R.drawable.ic_repeat_vector
         }
         btnPlayMode?.setImageResource(resId)
+        
+        val text = hint ?: when {
+            shuffleEnabled -> activity.getString(R.string.shuffle)
+            repeatMode == Player.REPEAT_MODE_ONE -> activity.getString(R.string.repeat_one)
+            else -> activity.getString(R.string.repeat_all)
+        }
+        showPlayModeHint(text)
     }
 
     private fun showPlayModeHint(text: String) {

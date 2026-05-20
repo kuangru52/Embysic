@@ -12,11 +12,7 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.database.StandaloneDatabaseProvider
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -26,7 +22,6 @@ import com.google.common.collect.ImmutableList
 import androidx.media3.session.CommandButton
 import androidx.media3.session.DefaultMediaNotificationProvider
 import androidx.media3.session.MediaNotification
-import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,7 +29,6 @@ import kotlinx.coroutines.launch
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import kotlinx.coroutines.withContext
-import java.io.File
 
 @UnstableApi
 class PlaybackService : MediaSessionService() {
@@ -123,12 +117,12 @@ class PlaybackService : MediaSessionService() {
                 // 如果是列表重载导致的无缝切换（SessionId 未变），跳过汇报以防止卡顿
                 if (newSessionId != null && newSessionId == oldSessionId) {
                     Log.d("PlaybackService", "Seamless transition detected, skipping report cycle")
-                    lastReportedItemId = mediaItem?.mediaId
-                    currentItemExtras = mediaItem?.mediaMetadata?.extras
+                    lastReportedItemId = mediaItem.mediaId
+                    currentItemExtras = mediaItem.mediaMetadata.extras
                     // 关键：虽然跳过 Stop/Start 汇报，但需要更新 isStartReported 状态，
                     // 否则如果下一首 SessionId 变了，可能会因为 isStartReported 为 true 而不汇报 Start
                     isStartReported = true 
-                    currentReportingItemId = mediaItem?.mediaId
+                    currentReportingItemId = mediaItem.mediaId
                     return
                 }
 
@@ -171,27 +165,32 @@ class PlaybackService : MediaSessionService() {
                 }
             }
 
-            override fun onPositionDiscontinuity(
-                oldPosition: Player.PositionInfo,
-                newPosition: Player.PositionInfo,
-                reason: Int
-            ) {
-                if (reason == Player.DISCONTINUITY_REASON_SEEK) {
+            override fun onEvents(player: Player, events: Player.Events) {
+                if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) || 
+                    events.contains(Player.EVENT_TIMELINE_CHANGED) ||
+                    events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
+                    // 强制校准：在任何切换或状态变动后，强制将模式拉回用户设定的值
+                    (wrappedPlayer as? PendingModePlayer)?.applyPendingModes()
+                }
+                
+                if (events.contains(Player.EVENT_POSITION_DISCONTINUITY) || 
+                    events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
                     // 记录最后有效进度并立即上报 Seek 给 Emby
                     lastKnownPositionMs = exoPlayer.currentPosition
                     reportProgress(exoPlayer, "Seek")
                 }
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
-                    checkAndApplyPendingModes()
-                }
-                if (playbackState == Player.STATE_ENDED) {
-                    // 正常结束，汇报 0 表示“听完了”，reportStop 内部会转为 duration
-                    reportStop(exoPlayer.currentMediaItem?.mediaId, currentItemExtras, 0L)
-                    lastReportedItemId = null
-                    currentItemExtras = null
+                
+                if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
+                    val playbackState = player.playbackState
+                    if (playbackState == Player.STATE_READY) {
+                        checkAndApplyPendingModes()
+                    }
+                    if (playbackState == Player.STATE_ENDED) {
+                        // 正常结束，汇报 0 表示“听完了”，reportStop 内部会转为 duration
+                        reportStop(exoPlayer.currentMediaItem?.mediaId, currentItemExtras, 0L)
+                        lastReportedItemId = null
+                        currentItemExtras = null
+                    }
                 }
             }
 
@@ -199,8 +198,7 @@ class PlaybackService : MediaSessionService() {
                 val p = mediaSession?.player ?: return
                 if (p.duration <= 0) return
                 val remaining = p.duration - p.currentPosition
-                if (remaining < 2000 && remaining > 0) {
-                    // 距离结束不到 2 秒，将延期设置的模式应用到真正的 exoPlayer
+                if (remaining in 1..1999) {
                     (wrappedPlayer as? PendingModePlayer)?.applyPendingModes()
                 }
             }
@@ -212,29 +210,26 @@ class PlaybackService : MediaSessionService() {
             private var pendingRepeatMode: Int? = null
 
             override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
+                // 核心持久化：用户点的什么，就是什么，绝不主动清除
+                pendingShuffleMode = shuffleModeEnabled
+                super.setShuffleModeEnabled(shuffleModeEnabled)
                 if (shuffleModeEnabled) {
-                    // 开启随机时，设置为 Pending
-                    pendingShuffleMode = true
-                } else {
-                    // 关闭随机立即生效
-                    super.setShuffleModeEnabled(false)
-                    pendingShuffleMode = null
+                    shuffleLibrary()
                 }
             }
 
             override fun setRepeatMode(repeatMode: Int) {
-                if (repeatMode == Player.REPEAT_MODE_ONE) {
-                    // 单曲循环立即生效
-                    super.setRepeatMode(repeatMode)
-                    pendingRepeatMode = null
+                pendingRepeatMode = repeatMode
+                super.setRepeatMode(repeatMode)
+                // 如果是单曲循环，强制关闭随机（业务逻辑一致性）
+                if (repeatMode == REPEAT_MODE_ONE) {
                     pendingShuffleMode = false
                     super.setShuffleModeEnabled(false)
-                } else {
-                    pendingRepeatMode = repeatMode
                 }
             }
 
             override fun getShuffleModeEnabled(): Boolean {
+                // 始终返回用户最后一次点击的状态
                 return pendingShuffleMode ?: super.getShuffleModeEnabled()
             }
 
@@ -245,27 +240,26 @@ class PlaybackService : MediaSessionService() {
             override fun seekToNext() {
                 applyPendingModes()
                 super.seekToNext()
-                play() // 强制播放
+                play() 
             }
 
             override fun seekToNextMediaItem() {
                 applyPendingModes()
                 super.seekToNextMediaItem()
-                play() // 强制播放
+                play()
             }
 
             override fun applyPendingModes() {
+                // 同步状态，但不设为 null。保持持久化。
                 pendingShuffleMode?.let {
-                    if (it) {
-                        shuffleLibrary()
-                    } else {
-                        super.setShuffleModeEnabled(false)
+                    if (super.getShuffleModeEnabled() != it) {
+                        super.setShuffleModeEnabled(it)
                     }
-                    pendingShuffleMode = null
                 }
                 pendingRepeatMode?.let {
-                    super.setRepeatMode(it)
-                    pendingRepeatMode = null
+                    if (super.getRepeatMode() != it) {
+                        super.setRepeatMode(it)
+                    }
                 }
             }
 
@@ -298,11 +292,10 @@ class PlaybackService : MediaSessionService() {
                             } else {
                                 exoPlayer.setMediaItems(items)
                             }
+                            // 核心修复 1：列表更新后立即强制恢复用户的播放模式
+                            applyPendingModes()
                             exoPlayer.prepare()
                             exoPlayer.play()
-                            // 虽然我们手动打乱了列表，但为了让 UI 显示“随机”图标，还是把底层的 shuffle 关掉
-                            // 否则 Media3 可能会再次对我们的随机列表进行二次打乱
-                            super.setShuffleModeEnabled(false) 
                         }
                     } catch (e: Exception) {
                         Log.e("PlaybackService", "Shuffle Library Error: ${e.message}")
@@ -338,18 +331,18 @@ class PlaybackService : MediaSessionService() {
             
             override fun getAvailableCommands(): Player.Commands {
                 return super.getAvailableCommands().buildUpon()
-                    .add(Player.COMMAND_PLAY_PAUSE)
-                    .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                    .add(Player.COMMAND_SEEK_TO_NEXT)
-                    .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                    .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                    .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                    .add(Player.COMMAND_SEEK_TO_MEDIA_ITEM)
-                    .add(Player.COMMAND_GET_TIMELINE)
-                    .add(Player.COMMAND_GET_METADATA)
-                    .add(Player.COMMAND_SET_SPEED_AND_PITCH)
-                    .add(Player.COMMAND_SET_REPEAT_MODE)
-                    .add(Player.COMMAND_SET_SHUFFLE_MODE)
+                    .add(COMMAND_PLAY_PAUSE)
+                    .add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                    .add(COMMAND_SEEK_TO_NEXT)
+                    .add(COMMAND_SEEK_TO_PREVIOUS)
+                    .add(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                    .add(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                    .add(COMMAND_SEEK_TO_MEDIA_ITEM)
+                    .add(COMMAND_GET_TIMELINE)
+                    .add(COMMAND_GET_METADATA)
+                    .add(COMMAND_SET_SPEED_AND_PITCH)
+                    .add(COMMAND_SET_REPEAT_MODE)
+                    .add(COMMAND_SET_SHUFFLE_MODE)
                     .build()
             }
         }
@@ -419,7 +412,7 @@ class PlaybackService : MediaSessionService() {
                     session, customLayout, actionFactory, onNotificationChangedCallback
                 )
                 // 设置颜色为极低不透明度的白色，营造玻璃感
-                mediaNotification.notification.color = 0x1EFFFFFF.toInt()
+                mediaNotification.notification.color = 0x1EFFFFFF
                 // 禁用颜色化背景，以尝试获得更透明的系统默认效果
                 mediaNotification.notification.extras.putBoolean("android.colorized", false)
                 return mediaNotification
@@ -477,7 +470,7 @@ class PlaybackService : MediaSessionService() {
                 service.reportPlaybackStart(
                     auth,
                     PlaybackReportInfo(
-                        ItemId = itemId!!,
+                        ItemId = itemId,
                         UserId = userId,
                         MediaSourceId = mediaSourceId,
                         PlaySessionId = sessionId,
@@ -516,7 +509,7 @@ class PlaybackService : MediaSessionService() {
                 service.reportPlaybackProgress(
                     auth,
                     PlaybackProgressInfo(
-                        ItemId = itemId!!,
+                        ItemId = itemId,
                         UserId = userId,
                         PositionTicks = positionTicks,
                         MediaSourceId = mediaSourceId,

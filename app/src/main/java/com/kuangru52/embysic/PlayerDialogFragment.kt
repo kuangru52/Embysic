@@ -349,6 +349,24 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         btnMore.setOnClickListener { toggleFavorite() }
         rlDisc.setOnClickListener { showLyrics() }
 
+        tvArtist.setOnClickListener {
+            val currentItem = player?.currentMediaItem ?: return@setOnClickListener
+            val extras = currentItem.mediaMetadata.extras ?: return@setOnClickListener
+            val artistId = extras.getString("artist_id")
+            val artistName = currentItem.mediaMetadata.artist?.toString() ?: "歌手"
+
+            if (artistId != null) {
+                dismiss() // 关闭播放界面
+                val fragment = LibraryFragment().apply {
+                    arguments = Bundle().apply {
+                        putString("artist_id", artistId)
+                        putString("artist_name", artistName)
+                    }
+                }
+                (activity as? HomeActivity)?.replaceFragment(fragment, "artist_$artistId")
+            }
+        }
+
         var qualityClickCount = 0
         var lastClickTime = 0L
         tvAudioQuality.setOnClickListener {

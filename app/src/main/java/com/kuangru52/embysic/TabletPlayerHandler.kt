@@ -156,6 +156,25 @@ class TabletPlayerHandler(
         }
         btnPlayMode?.setOnClickListener { togglePlayMode() }
         btnMore?.setOnClickListener { toggleFavorite() }
+
+        tvArtist?.setOnClickListener {
+            val currentItem = controller.currentMediaItem ?: return@setOnClickListener
+            val extras = currentItem.mediaMetadata.extras ?: return@setOnClickListener
+            val artistId = extras.getString("artist_id")
+            val artistName = currentItem.mediaMetadata.artist?.toString() ?: "歌手"
+
+            if (artistId != null) {
+                (activity as? HomeActivity)?.let { activity ->
+                    val fragment = LibraryFragment().apply {
+                        arguments = android.os.Bundle().apply {
+                            putString("artist_id", artistId)
+                            putString("artist_name", artistName)
+                        }
+                    }
+                    activity.replaceFragment(fragment, "artist_$artistId")
+                }
+            }
+        }
         
         val root = activity.findViewById<View>(R.id.main_root)
         val llTitleContainer = root?.findViewById<View>(R.id.llTitleContainer)

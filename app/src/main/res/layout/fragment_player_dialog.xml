@@ -46,7 +46,9 @@
             android:layout_marginTop="64dp"
             android:layout_marginBottom="24dp"
             android:clipToPadding="true"
-            android:overScrollMode="never" />
+            android:overScrollMode="never"
+            android:fadingEdgeLength="120dp"
+            android:requiresFadingEdge="vertical" />
 
         <RelativeLayout
             android:id="@+id/rlTopBar"

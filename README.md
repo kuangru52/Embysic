@@ -2,50 +2,6 @@
 
 [中文](#中文) | [English](#english)
 
----
-
-<a name="english"></a>
-## English
-
-Embysic is a high-aesthetic, lightweight Emby music client designed for Android. It aims to provide the ultimate music playback experience by combining modern UI design with smooth interaction logic, bringing your Emby music library to life.
-
-### Project Introduction
-
-Embysic is more than just a player; it pursues a native-like smoothness and exquisite visual details. The project adopts Material Design 3 specifications and deeply optimizes gesture operations and interface transition animations specifically for music playback scenarios.
-
-### Hidden Features & Interaction Guide
-
-To keep the interface clean, we have designed a series of intuitive "hidden" interaction features for advanced users:
-
-#### 1. Force Direct Mode
-- **How to use**: Tap the **"Audio Quality"** text (e.g., "128kbps" or "FLAC") **5 times** on the player screen.
-- **Function**: Forces a toggle of the playback mode. This allows for quick switching of connection strategies when in complex network environments or when original audio quality is required.
-
-#### 2. Quick Locate
-- **How to use**: Tap the **"Song Title"** on the player screen.
-- **Function**: Immediately dismisses the player and navigates to the song's position in the music library, making it easy to browse other tracks in the album.
-
-#### 3. Volume Swipe
-- **How to use**: **Swipe horizontally** on the touch area at the very bottom of the player (approx. 64dp height).
-- **Function**: Adjusts system volume via gestures without calling up the system volume bar. A custom `VolumeDotView` visual indicator appears in the center for smooth feedback.
-
-#### 4. Artist Jump
-- **How to use**: Tap the **"Artist Name"** at the bottom of the player.
-- **Function**: Jumps directly to the artist's album list page to discover more related works.
-
-#### 5. Lyric Sync Toggle
-- **How to use**: Tap the **Disk/Center area** of the player.
-- **Function**: Toggles between the beautiful vinyl record view and the synchronized lyrics view. Lyrics use a smart alignment algorithm to keep the current line at the screen's golden ratio.
-
-### Technical Highlights & Optimizations
-
-- **Glass Dock**: Implements real-time "Liquid Glass" blur on Android 13+ devices for a richer visual depth in the bottom navigation bar.
-- **Dynamic Inset Adaptation**: Uses `OnApplyWindowInsetsListener` to dynamically handle status and navigation bar heights, removing redundant Spacer views for a more efficient layout.
-- **Smart Marquee**: Automatically enables marquee effects for long titles and artist names to ensure full metadata visibility.
-- **Performance Boost**: Streamlined layout hierarchy and removed all redundant gradient mask resources to improve rendering performance on lower-end devices.
-
----
-
 <a name="中文"></a>
 ## 中文
 
@@ -91,6 +47,50 @@ Embysic 不仅仅是一个播放器，它追求原生般的流畅感与精致的
 ## 开发与贡献
 
 如果您对本项目感兴趣，欢迎提交 Issue 或 Pull Request。
+---
+
+<a name="english"></a>
+## English
+
+Embysic is a high-aesthetic, lightweight Emby music client designed for Android. It aims to provide the ultimate music playback experience by combining modern UI design with smooth interaction logic, bringing your Emby music library to life.
+
+### Project Introduction
+
+Embysic is more than just a player; it pursues a native-like smoothness and exquisite visual details. The project adopts Material Design 3 specifications and deeply optimizes gesture operations and interface transition animations specifically for music playback scenarios.
+
+### Hidden Features & Interaction Guide
+
+To keep the interface clean, we have designed a series of intuitive "hidden" interaction features for advanced users:
+
+#### 1. Force Direct Mode
+- **How to use**: Tap the **"Audio Quality"** text (e.g., "128kbps" or "FLAC") **5 times** on the player screen.
+- **Function**: Forces a toggle of the playback mode. This allows for quick switching of connection strategies when in complex network environments or when original audio quality is required.
+
+#### 2. Quick Locate
+- **How to use**: Tap the **"Song Title"** on the player screen.
+- **Function**: Immediately dismisses the player and navigates to the song's position in the music library, making it easy to browse other tracks in the album.
+
+#### 3. Volume Swipe
+- **How to use**: **Swipe horizontally** on the touch area at the very bottom of the player (approx. 64dp height).
+- **Function**: Adjusts system volume via gestures without calling up the system volume bar. A custom `VolumeDotView` visual indicator appears in the center for smooth feedback.
+
+#### 4. Artist Jump
+- **How to use**: Tap the **"Artist Name"** at the bottom of the player.
+- **Function**: Jumps directly to the artist's album list page to discover more related works.
+
+#### 5. Lyric Sync Toggle
+- **How to use**: Tap the **Disk/Center area** of the player.
+- **Function**: Toggles between the beautiful vinyl record view and the synchronized lyrics view. Lyrics use a smart alignment algorithm to keep the current line at the screen's golden ratio.
+
+### Technical Highlights & Optimizations
+
+- **Glass Dock**: Implements real-time "Liquid Glass" blur on Android 13+ devices for a richer visual depth in the bottom navigation bar.
+- **Dynamic Inset Adaptation**: Uses `OnApplyWindowInsetsListener` to dynamically handle status and navigation bar heights, removing redundant Spacer views for a more efficient layout.
+- **Smart Marquee**: Automatically enables marquee effects for long titles and artist names to ensure full metadata visibility.
+- **Performance Boost**: Streamlined layout hierarchy and removed all redundant gradient mask resources to improve rendering performance on lower-end devices.
+
+---
+
 
 **License**
 Apache License 2.0

@@ -58,22 +58,20 @@ class LyricsAdapter(
         
         val isMetadata = line.timeMs == -1L
         
-        val isLandscape = holder.itemView.context.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        
         if (isMetadata) {
             textView.setTextColor(0x99FFFFFF.toInt()) // 半透明白
-            textView.textSize = if (isLandscape) 16f else 13f
+            textView.textSize = 13f
             textView.alpha = 1.0f
             textView.paint.isFakeBoldText = false
         } else {
             if (position == currentLineIndex) {
                 textView.setTextColor(android.graphics.Color.WHITE) // 纯白
-                textView.textSize = if (isLandscape) 24f else 18f
+                textView.textSize = 18f
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = true
             } else {
                 textView.setTextColor(0x66FFFFFF.toInt()) // 更明显的非激活态透明度
-                textView.textSize = if (isLandscape) 20f else 15f
+                textView.textSize = 15f
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = false
             }

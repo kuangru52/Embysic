@@ -5,7 +5,6 @@ import android.app.Dialog
 import android.content.DialogInterface
 import android.content.res.Configuration
 import android.graphics.Color
-import android.graphics.RectF
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -28,12 +27,11 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.isVisible
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import android.widget.ImageButton
+import androidx.core.graphics.toColorInt
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
@@ -120,7 +118,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }
     }
     private lateinit var rvLyrics: RecyclerView
-    private lateinit var rlTopBar: View
     private lateinit var contentContainer: View
     private lateinit var flHintContainer: View
     private lateinit var pbDownload: ProgressBar
@@ -205,6 +202,9 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             window.setWindowAnimations(R.style.PlayerDialogAnimation)
             window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
             WindowCompat.setDecorFitsSystemWindows(window, false)
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
         }
         return dialog
     }
@@ -216,16 +216,41 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             val bottomSheet = it.findViewById<View>(com.google.android.material.R.id.design_bottom_sheet)
             bottomSheet?.let { sheet ->
                 sheet.layoutParams.height = ViewGroup.LayoutParams.MATCH_PARENT
-                // 关键：将系统默认的 BottomSheet 背景设为透明，避免露底
+                // 关键：将系统默认的 BottomSheet 背景设为透明
                 sheet.setBackgroundColor(Color.TRANSPARENT)
+                // 强制关闭 BottomSheet 的自动适配
+                sheet.fitsSystemWindows = false
+                
+                val behavior = BottomSheetBehavior.from(sheet)
+                behavior.state = BottomSheetBehavior.STATE_EXPANDED
+                behavior.skipCollapsed = true
             }
+
+            // 核心修复：强制拦截并忽略父容器的 Insets 处理，防止它们自动把内容往下顶
+            val container = it.findViewById<View>(com.google.android.material.R.id.container)
+            val coordinator = it.findViewById<View>(com.google.android.material.R.id.coordinator)
+            
+            container?.fitsSystemWindows = false
+            container?.let { c -> ViewCompat.setOnApplyWindowInsetsListener(c) { _, insets -> insets } }
+            
+            coordinator?.fitsSystemWindows = false
+            coordinator?.let { co -> ViewCompat.setOnApplyWindowInsetsListener(co) { _, insets -> insets } }
             
             it.window?.let { window ->
                 window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT)
-                // 恢复全屏显示，确保背景模糊和布局延伸到状态栏
-                window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
                 
-                // 始终使用浅色状态栏图标 (白色)，因为播放器背景是深色的
+                // 核心：强制沉浸式
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                window.statusBarColor = Color.TRANSPARENT
+                window.navigationBarColor = Color.TRANSPARENT
+                
+                // 使用 NO_LIMITS 确保背景图覆盖状态栏
+                window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+
                 val controller = WindowInsetsControllerCompat(window, window.decorView)
                 controller.isAppearanceLightStatusBars = false
                 controller.isAppearanceLightNavigationBars = false
@@ -240,45 +265,46 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         initApiService()
         SongDownloader.addProgressListener(downloadProgressListener)
         
-        val navigationBarSpacer = view.findViewById<View>(R.id.navigationBarSpacer)
+        val mainContent = view.findViewById<View>(R.id.mainContent)
         val statusBarSpacer = view.findViewById<View>(R.id.statusBarSpacer)
         
         ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             
-            // 1. 处理状态栏和导航栏占位
-            statusBarSpacer.layoutParams.height = bars.top
-            statusBarSpacer.requestLayout()
-
-            navigationBarSpacer.layoutParams.height = bars.bottom
-            navigationBarSpacer.requestLayout()
-
-            // 2. 处理自适应圆角
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                val platformInsets = insets.toWindowInsets()
-                if (platformInsets != null) {
-                    val topLeft = platformInsets.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)
-                    val topRight = platformInsets.getRoundedCorner(RoundedCorner.POSITION_TOP_RIGHT)
-                    
-                    val radius = topLeft?.radius?.toFloat() ?: topRight?.radius?.toFloat() ?: 
-                                 (28 * resources.displayMetrics.density)
-
-                    v.outlineProvider = object : ViewOutlineProvider() {
-                        override fun getOutline(view: View, outline: Outline) {
-                            outline.setRoundRect(0, 0, view.width, view.height, radius)
-                        }
-                    }
-                    v.clipToOutline = true
-                }
-            } else {
-                val radius = 28 * resources.displayMetrics.density
-                v.outlineProvider = object : ViewOutlineProvider() {
-                    override fun getOutline(view: View, outline: Outline) {
-                        outline.setRoundRect(0, 0, view.width, view.height, radius)
-                    }
-                }
-                v.clipToOutline = true
+            // 增强型状态栏高度获取
+            val statusBarHeight = if (bars.top > 0) bars.top else {
+                val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+                if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else (24 * resources.displayMetrics.density).toInt()
             }
+
+            // 核心修复：使用 statusBarSpacer 物理占位，确保歌词等内容不进入状态栏区域
+            // 同时 mainContent 的 paddingTop 设为 0，让背景可以延伸到状态栏（配合 DecorFitsSystemWindows(false)）
+            statusBarSpacer?.layoutParams?.height = statusBarHeight
+            statusBarSpacer?.requestLayout()
+
+            mainContent.setPadding(
+                mainContent.paddingLeft,
+                0,
+                mainContent.paddingRight,
+                bars.bottom
+            )
+
+            // 处理自适应圆角
+            val radius = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val platformInsets = insets.toWindowInsets()
+                val topLeft = platformInsets?.getRoundedCorner(RoundedCorner.POSITION_TOP_LEFT)
+                val topRight = platformInsets?.getRoundedCorner(RoundedCorner.POSITION_TOP_RIGHT)
+                topLeft?.radius?.toFloat() ?: topRight?.radius?.toFloat() ?: (28 * resources.displayMetrics.density)
+            } else {
+                28 * resources.displayMetrics.density
+            }
+
+            v.outlineProvider = object : ViewOutlineProvider() {
+                override fun getOutline(view: View, outline: Outline) {
+                    outline.setRoundRect(0, 0, view.width, view.height, radius)
+                }
+            }
+            v.clipToOutline = true
 
             insets
         }
@@ -303,6 +329,10 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         ivBlurBackground = view.findViewById(R.id.ivBlurBackground)
         tvTitle = view.findViewById(R.id.tvTitle)
         tvArtist = view.findViewById(R.id.tvArtist)
+        
+        // 开启跑马灯滚动效果
+        tvTitle.isSelected = true
+        tvArtist.isSelected = true
         btnPlayMode = view.findViewById(R.id.btnPlayMode)
         btnPlayPause = view.findViewById(R.id.btnPlayPause)
         seekBar = view.findViewById(R.id.seekBar)
@@ -320,7 +350,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         cvAlbumArt = view.findViewById(R.id.cvAlbumArt)
         ivNeedle = view.findViewById(R.id.ivNeedle)
         rvLyrics = view.findViewById(R.id.rvLyrics)
-        rlTopBar = view.findViewById(R.id.rlTopBar)
         contentContainer = view.findViewById(R.id.contentContainer)
         flHintContainer = view.findViewById(R.id.flHintContainer)
         pbDownload = view.findViewById(R.id.pbDownload)
@@ -478,7 +507,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             }
         }
         
-        val contentContainer = view.findViewById<View>(R.id.contentContainer)
         contentContainer.setOnClickListener {
             if (rvLyrics.isVisible) hideLyrics() else showLyrics()
         }
@@ -601,31 +629,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }
     }
 
-    private fun showVolumeDialog() {
-        val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return
-        val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
-        val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-
-        val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_volume, null)
-        val volSeekBar = dialogView.findViewById<SeekBar>(R.id.volumeSeekBar)
-        volSeekBar.max = maxVolume
-        volSeekBar.progress = currentVolume
-
-        val dialog = AlertDialog.Builder(requireContext(), R.style.Theme_Embysic_Dialog)
-            .setView(dialogView)
-            .create()
-
-        volSeekBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                if (fromUser) audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, progress, 0)
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
-
-        dialog.show()
-    }
-
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
             isUserScrollingLyrics = false
@@ -682,10 +685,12 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         pbDownload.progress = SongDownloader.getProgress(itemId)
 
         mediaItem.mediaMetadata.let {
-            tvTitle.text = it.title
+            tvTitle.text = (it.title ?: getString(R.string.unknown_song)).toString().replace("\n", " ")
             tvTitle.isSelected = true
-            tvArtist.text = it.artist
+            tvTitle.requestFocus()
+            tvArtist.text = (it.artist ?: getString(R.string.unknown_artist)).toString().replace("\n", " ")
             tvArtist.isSelected = true
+            tvArtist.requestFocus()
             val artworkUri = it.artworkUri
             
             val extras = it.extras
@@ -701,7 +706,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                     tvAudioQuality.background = null 
                 } else {
                     tvAudioQuality.text = getString(R.string.transcoding, codec, bitrate)
-                    tvAudioQuality.setTextColor(Color.parseColor("#B3FFFFFF"))
+                    tvAudioQuality.setTextColor("#B3FFFFFF".toColorInt())
                     tvAudioQuality.background = null
                 }
                 tvAudioQuality.visibility = View.VISIBLE
@@ -752,8 +757,9 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             val index = lyricsAdapter.updateActiveLine(p.currentPosition)
             if (index != -1) {
                 val layoutManager = rvLyrics.layoutManager as? LinearLayoutManager
-                // 修正参数：将当前行滚动到距离顶部 1/3 的位置，视觉上接近中心且能看到更多后续歌词
-                layoutManager?.scrollToPositionWithOffset(index, rvLyrics.height / 3)
+                val isLandscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+                val offset = if (isLandscape) rvLyrics.height / 3 else rvLyrics.height / 3
+                layoutManager?.scrollToPositionWithOffset(index, offset)
             }
         }
         val extras = p.currentMediaItem?.mediaMetadata?.extras
@@ -769,19 +775,13 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         tvCurrentTime.text = formatTime(current)
     }
 
-    private fun getColorFromAttr(@AttrRes attr: Int): Int {
-        val typedValue = TypedValue()
-        requireContext().theme.resolveAttribute(attr, typedValue, true)
-        return typedValue.data
-    }
-
     private fun updateFavoriteIcon(isFavorite: Boolean) {
         if (isFavorite) {
             btnMore.setImageResource(R.drawable.ic_heart)
             btnMore.setColorFilter(Color.RED, android.graphics.PorterDuff.Mode.SRC_IN)
         } else {
             btnMore.setImageResource(R.drawable.ic_heart_border)
-            btnMore.setColorFilter(Color.parseColor("#66FFFFFF"), android.graphics.PorterDuff.Mode.SRC_IN)
+            btnMore.setColorFilter("#66FFFFFF".toColorInt(), android.graphics.PorterDuff.Mode.SRC_IN)
         }
     }
 
@@ -827,7 +827,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
     private fun searchNeteaseCover(itemId: String, title: String?, artist: String?) {
         lifecycleScope.launch(Dispatchers.IO) {
-            val cleanedTitle = title?.replace(Regex("\\s*[([\\[].*[\\])]]"), "")?.trim() ?: ""
+            val cleanedTitle = title?.replace(Regex("\\s*[(\\[].*?[)\\]]"), "")?.trim() ?: ""
             val query = if (artist.isNullOrBlank() || artist == "未知歌手") cleanedTitle else "$cleanedTitle $artist"
             if (query.isEmpty()) return@launch
             try {
@@ -917,7 +917,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         handler.removeCallbacks(resumeAutoScrollRunnable)
 
         // 隐藏不需要的组件以释放空间给歌词
-        rlTopBar.visibility = View.GONE
         contentContainer.visibility = View.GONE
         flHintContainer.visibility = View.GONE
 
@@ -996,8 +995,9 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             try {
                 val response = service.getLyrics(itemId, authHeader)
                 val rawLines = response.Lines ?: response.Lyrics ?: response.LyricLines
+                @Suppress("UNCHECKED_CAST")
                 val actualLines = rawLines as? List<LyricLine>
-                if (actualLines == null || actualLines.isEmpty()) {
+                if (actualLines.isNullOrEmpty()) {
                     searchNeteaseLyrics(itemId, title, artist)
                 } else {
                     val metadata = mutableListOf(LrcLine(-1, title ?: "未知曲名"), LrcLine(-1, artist ?: "未知歌手"))
@@ -1021,7 +1021,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
     }
 
     private fun searchNeteaseLyrics(itemId: String, title: String?, artist: String?) {
-        val cleanedTitle = title?.replace(Regex("\\s*([(\\[].*?[)\\]])"), "")?.trim() ?: ""
+        val cleanedTitle = title?.replace(Regex("\\s*[(\\[].*?[)\\]]"), "")?.trim() ?: ""
         val isUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
         val query = if (isUnknown) cleanedTitle else "$cleanedTitle $artist"
         if (query.isEmpty()) { showNoLyrics(itemId, title, artist); return }
@@ -1077,7 +1077,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             .withEndAction {
                 rvLyrics.visibility = View.GONE
                 // 恢复组件显示
-                rlTopBar.visibility = View.VISIBLE
                 contentContainer.visibility = View.VISIBLE
                 flHintContainer.visibility = View.VISIBLE
                 

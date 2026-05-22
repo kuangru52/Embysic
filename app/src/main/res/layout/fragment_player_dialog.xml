@@ -6,16 +6,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black"
-    android:clipToOutline="true"
-    android:clipChildren="false"
-    android:clipToPadding="false">
+    android:clipToOutline="true">
 
+    <!-- 沉浸式背景：延伸到状态栏 -->
     <ImageView
         android:id="@+id/ivBlurBackground"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
-        android:alpha="0.6"
+        android:alpha="1.0"
         android:src="@drawable/bg_superman"
         android:contentDescription="@null" />
 
@@ -24,13 +23,15 @@
         android:layout_height="match_parent"
         android:background="#40000000" />
 
+    <!-- 内容容器：通过 paddingTop 和 clipToPadding 实现歌词剪裁 -->
     <LinearLayout
+        android:id="@+id/mainContent"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:orientation="vertical"
         android:paddingHorizontal="24dp"
-        android:clipChildren="false"
-        android:clipToPadding="false">
+        android:clipChildren="true"
+        android:clipToPadding="true">
 
         <View
             android:id="@+id/statusBarSpacer"
@@ -43,19 +44,15 @@
             android:layout_height="0dp"
             android:layout_weight="1"
             android:visibility="gone"
-            android:layout_marginTop="64dp"
-            android:layout_marginBottom="24dp"
-            android:clipToPadding="true"
+            android:paddingTop="120dp"
+            android:paddingBottom="120dp"
+            android:clipToPadding="false"
             android:overScrollMode="never"
-            android:fadingEdgeLength="120dp"
-            android:requiresFadingEdge="vertical" />
-
-        <RelativeLayout
-            android:id="@+id/rlTopBar"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="16dp" />
+            android:requiresFadingEdge="vertical"
+            android:fadingEdge="vertical"
+            android:fadingEdgeLength="150dp"
+            android:background="@android:color/transparent"
+            android:cacheColorHint="@android:color/transparent" />
 
         <FrameLayout
             android:id="@+id/contentContainer"
@@ -70,8 +67,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:translationY="30dp"
-                android:clipChildren="false"
-                android:clipToPadding="false">
+                android:clipChildren="false">
 
                 <View
                     android:layout_width="310dp"
@@ -126,7 +122,7 @@
             android:id="@+id/flHintContainer"
             android:layout_width="match_parent"
             android:layout_height="32dp"
-            android:layout_marginTop="-8dp"
+            android:layout_marginTop="8dp"
             android:layout_marginBottom="4dp">
             <LinearLayout
                 android:id="@+id/llVolumeHint"
@@ -181,8 +177,13 @@
                     android:textColor="@android:color/white"
                     android:textSize="24sp"
                     android:textStyle="bold"
+                    android:singleLine="true"
                     android:maxLines="1"
                     android:ellipsize="marquee"
+                    android:marqueeRepeatLimit="marquee_forever"
+                    android:scrollHorizontally="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
                     android:shadowColor="#80000000"
                     android:shadowRadius="4" />
                 <TextView
@@ -191,7 +192,14 @@
                     android:layout_height="wrap_content"
                     android:textColor="#B3FFFFFF"
                     android:textSize="16sp"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="4dp"
+                    android:singleLine="true"
+                    android:maxLines="1"
+                    android:ellipsize="marquee"
+                    android:marqueeRepeatLimit="marquee_forever"
+                    android:scrollHorizontally="true"
+                    android:focusable="true"
+                    android:focusableInTouchMode="true"
                     android:shadowColor="#80000000"
                     android:shadowRadius="4" />
             </LinearLayout>
@@ -299,11 +307,6 @@
                 android:layout_height="match_parent"
                 android:alpha="0" />
         </FrameLayout>
-
-        <View
-            android:id="@+id/navigationBarSpacer"
-            android:layout_width="match_parent"
-            android:layout_height="0dp" />
     </LinearLayout>
 
     <com.kuangru52.embysic.HeartLayout

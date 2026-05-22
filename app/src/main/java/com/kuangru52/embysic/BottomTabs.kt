@@ -201,7 +201,14 @@ fun BottomTabs(
                     Spacer(modifier = Modifier.width(14.dp))
                     
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(text = title, fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 1, color = contentColor)
+                        Text(
+                            text = title,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            color = contentColor,
+                            modifier = Modifier.basicMarquee()
+                        )
                         if (artist.isNotEmpty()) {
                             Text(
                                 text = artist,

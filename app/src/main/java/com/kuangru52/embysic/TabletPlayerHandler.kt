@@ -236,10 +236,12 @@ class TabletPlayerHandler(
         tvTitle?.apply {
             text = metadata.title ?: "Unknown"
             isSelected = true // 开启跑马灯
+            requestFocus()
         }
         tvArtist?.apply {
             text = metadata.artist ?: "Unknown Artist"
             isSelected = true
+            requestFocus()
         }
         
         val mediaId = item.mediaId
@@ -610,7 +612,7 @@ class TabletPlayerHandler(
             val isUserScrolling = (rvLyricsRight?.getTag(R.id.bottom_container) as? Boolean) ?: false
             lyricsAdapter?.updateActiveLine(current)?.let { index ->
                 if (index != -1 && !isUserScrolling) {
-                    (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 2)
+                    (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 3)
                 }
             }
         } else {
@@ -626,7 +628,7 @@ class TabletPlayerHandler(
                 val isUserScrolling = (rvLyricsRight?.getTag(R.id.bottom_container) as? Boolean) ?: false
                 lyricsAdapter?.updateActiveLine(current)?.let { index ->
                     if (index != -1 && !isUserScrolling) {
-                        (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 2)
+                        (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 3)
                     }
                 }
             }

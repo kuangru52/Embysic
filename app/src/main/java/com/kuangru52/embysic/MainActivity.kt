@@ -51,6 +51,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import androidx.compose.ui.text.TextStyle
+import androidx.core.view.WindowCompat
 import org.json.JSONObject
 
 class MainActivity : AppCompatActivity() {
@@ -66,13 +68,10 @@ class MainActivity : AppCompatActivity() {
 
         super.onCreate(savedInstanceState)
         
-        // 沉浸式状态栏
-        window.apply {
-            clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
-            addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-            statusBarColor = Color.TRANSPARENT
-        }
+        // 沉浸式与键盘适配
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
         
         // 检查是否已经登录
         val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
@@ -139,29 +138,44 @@ class MainActivity : AppCompatActivity() {
         onLogin: () -> Unit
     ) {
         val backgroundBrush = getLoginBackgroundBrush()
+        val isDark = isSystemInDarkTheme()
+        val contentColor = if (isDark) ComposeColor.White else ComposeColor.Black
         
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(backgroundBrush)
+                .navigationBarsPadding()
+                .imePadding()
         ) {
-            // 背景图
-            Image(
-                painter = painterResource(id = R.drawable.login),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-
             // 登录表单
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 32.dp),
+                    .padding(horizontal = 32.dp)
+                    .statusBarsPadding(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // 顶部占位，让表单出现在图片下方透明区域
-                Spacer(modifier = Modifier.fillMaxHeight(0.45f))
+                Spacer(modifier = Modifier.height(64.dp))
+
+                // 标题与 Slogan
+                Text(
+                    text = "Embysic",
+                    fontSize = 48.sp,
+                    fontWeight = FontWeight.Black,
+                    color = contentColor,
+                    letterSpacing = 2.sp
+                )
+                Text(
+                    text = "重新爱上音乐！",
+                    fontSize = 16.sp,
+                    color = contentColor.copy(alpha = 0.6f),
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+
+                // 占位，使表单居中靠下
+                Spacer(modifier = Modifier.weight(1f))
 
                 LoginForm(
                     server = server,
@@ -173,19 +187,15 @@ class MainActivity : AppCompatActivity() {
                     onLogin = onLogin
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(32.dp))
 
                 AboutUsButton()
 
-                // 版权信息放在底部
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(bottom = 32.dp),
-                    contentAlignment = Alignment.BottomCenter
-                ) {
-                    VersionText()
-                }
+                Spacer(modifier = Modifier.height(24.dp))
+                
+                VersionText()
+                
+                Spacer(modifier = Modifier.height(16.dp))
             }
         }
     }
@@ -237,31 +247,40 @@ class MainActivity : AppCompatActivity() {
             modifier = Modifier
                 .fillMaxSize()
                 .background(backgroundBrush)
+                .navigationBarsPadding()
+                .imePadding()
         ) {
             Row(modifier = Modifier.fillMaxSize()) {
-                // 左侧：登录表单 (镜像手机布局风格，包含背景图)
+                // 左侧：登录表单
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
-                    // 背景图，与手机版一致
-                    Image(
-                        painter = painterResource(id = R.drawable.login),
-                        contentDescription = null,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-
                     // 登录表单内容
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .padding(horizontal = 32.dp),
+                            .padding(horizontal = 48.dp)
+                            .statusBarsPadding(),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // 顶部占位，比例与手机版一致 (0.45f)
-                        Spacer(modifier = Modifier.fillMaxHeight(0.45f))
+                        Spacer(modifier = Modifier.height(64.dp))
+                        
+                        Text(
+                            text = "Embysic",
+                            fontSize = 42.sp,
+                            fontWeight = FontWeight.Black,
+                            color = contentColor
+                        )
+                        Text(
+                            text = "重新爱上音乐！",
+                            fontSize = 14.sp,
+                            color = contentColor.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+
+                        Spacer(modifier = Modifier.weight(1f))
 
                         LoginForm(
                             server = server,
@@ -273,17 +292,12 @@ class MainActivity : AppCompatActivity() {
                             onLogin = onLogin
                         )
 
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(32.dp))
                         AboutUsButton()
                         
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(bottom = 32.dp),
-                            contentAlignment = Alignment.BottomCenter
-                        ) {
-                            VersionText()
-                        }
+                        Spacer(modifier = Modifier.height(24.dp))
+                        VersionText()
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
 
@@ -410,12 +424,12 @@ class MainActivity : AppCompatActivity() {
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(24.dp))
                     .border(
-                        0.5.dp, 
-                        contentColor.copy(alpha = 0.2f), 
+                        1.dp, 
+                        contentColor.copy(alpha = 0.15f), 
                         RoundedCornerShape(24.dp)
                     ),
-                color = contentColor.copy(alpha = 0.05f), // 稍微透明的背景
-                tonalElevation = 12.dp
+                color = contentColor.copy(alpha = 0.08f),
+                tonalElevation = 2.dp
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     LoginInput(
@@ -547,11 +561,16 @@ class MainActivity : AppCompatActivity() {
             value = value,
             onValueChange = onValueChange,
             modifier = Modifier.fillMaxWidth(),
-            textStyle = LocalTextStyle.current.copy(textAlign = TextAlign.Start, color = contentColor),
+            textStyle = TextStyle(
+                textAlign = TextAlign.Start, 
+                color = contentColor,
+                fontSize = 16.sp
+            ),
             placeholder = { 
                 Text(
                     placeholder, 
-                    color = contentColor.copy(alpha = 0.4f)
+                    color = contentColor.copy(alpha = 0.35f),
+                    fontSize = 16.sp
                 ) 
             },
             visualTransformation = if (isPassword && !passwordVisible) PasswordVisualTransformation() else VisualTransformation.None,

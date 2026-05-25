@@ -713,45 +713,43 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             val coverFile = java.io.File(context.cacheDir, "covers/${itemId}.jpg")
             val initialData: Any? = when {
                 coverFile.exists() -> coverFile
-                hasPrimary && artworkUri != null -> artworkUri
                 cachedNeteaseUrl != null -> cachedNeteaseUrl
-                else -> artworkUri
+                hasPrimary && artworkUri != null -> artworkUri
+                else -> null
             }
 
-        ivCover.load(initialData) {
-            crossfade(true)
-            placeholder(R.drawable.cd)
-            error(R.drawable.cd)
-            listener(
-                onStart = {
-                    // 转场动画：淡入并轻微缩放
-                    ivCover.alpha = 0.5f
-                    ivCover.scaleX = 0.95f
-                    ivCover.scaleY = 0.95f
-                },
-                onSuccess = { _, _ ->
-                    ivCover.animate()
-                        .alpha(1f)
-                        .scaleX(1f)
-                        .scaleY(1f)
-                        .setDuration(300)
-                        .setInterpolator(AccelerateDecelerateInterpolator())
-                        .start()
-                    updateBlurBackground(initialData)
-                },
-                onError = { _, _ ->
-                    if (initialData != artworkUri && artworkUri != null) {
-                        ivCover.load(artworkUri) {
-                            placeholder(R.drawable.cd)
-                            listener(onSuccess = { _, _ -> updateBlurBackground(artworkUri) })
+            if (initialData != null) {
+                ivCover.load(initialData) {
+                    crossfade(true)
+                    placeholder(R.drawable.cd)
+                    error(R.drawable.cd)
+                    listener(
+                        onStart = {
+                            // 转场动画：淡入并轻微缩放
+                            ivCover.alpha = 0.5f
+                            ivCover.scaleX = 0.95f
+                            ivCover.scaleY = 0.95f
+                        },
+                        onSuccess = { _, _ ->
+                            ivCover.animate()
+                                .alpha(1f)
+                                .scaleX(1f)
+                                .scaleY(1f)
+                                .setDuration(300)
+                                .setInterpolator(AccelerateDecelerateInterpolator())
+                                .start()
+                            updateBlurBackground(initialData)
+                        },
+                        onError = { _, _ ->
+                            // 如果 initialData 加载失败，走 Tag 兜底
+                            loadCoverFromTags(itemId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
                         }
-                    } else {
-                        // 最后的尝试：从文件流解析 Tag
-                        loadCoverFromTags(itemId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
-                    }
+                    )
                 }
-            )
-        }
+            } else {
+                // 如果 initialData 为空（表示没有本地缓存也没有 Primary 封面），直接进入 Tag/搜网流程
+                loadCoverFromTags(itemId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
+            }
         }
     }
 

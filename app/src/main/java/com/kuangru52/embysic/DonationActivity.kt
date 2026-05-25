@@ -33,6 +33,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
@@ -212,12 +213,15 @@ class DonationActivity : ComponentActivity() {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "https://github.com/kuangru52/embysic",
-                        color = Color.White.copy(alpha = 0.4f),
+                        color = Color(0xFF2196F3), // 使用更鲜明的 Material Blue，确保用户识别为可点击链接
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Light,
-                        modifier = Modifier.clickable {
-                            openUrl("https://github.com/kuangru52/embysic")
-                        }
+                        fontWeight = FontWeight.Medium, // 加粗一点点
+                        textDecoration = TextDecoration.Underline,
+                        modifier = Modifier
+                            .clickable {
+                                openUrl("https://github.com/kuangru52/embysic")
+                            }
+                            .padding(4.dp)
                     )
                     Text(
                         text = "Embysic  ${BuildConfig.VERSION_NAME}",

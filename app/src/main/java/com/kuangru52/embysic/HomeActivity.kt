@@ -115,6 +115,8 @@ class HomeActivity : AppCompatActivity() {
         // 更新状态栏图标颜色
         updateStatusBarIcons()
 
+        checkUpdate()
+
         if (savedInstanceState == null) {
             replaceFragment(RecentFragment())
         }
@@ -565,6 +567,50 @@ class HomeActivity : AppCompatActivity() {
             transaction.replace(R.id.fragment_container, fragment)
         }
         transaction.commit()
+    }
+
+    private fun checkUpdate() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val latestRelease = RetrofitClient.githubApi.getLatestRelease()
+                val latestVersion = latestRelease.tag_name.replace("v", "")
+                val currentVersion = BuildConfig.VERSION_NAME
+
+                if (isNewerVersion(currentVersion, latestVersion)) {
+                    withContext(Dispatchers.Main) {
+                        showUpdateDialog(latestRelease)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("HomeActivity", "Check update failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun isNewerVersion(current: String, latest: String): Boolean {
+        val currentParts = current.split(".").mapNotNull { it.toIntOrNull() }
+        val latestParts = latest.split(".").mapNotNull { it.toIntOrNull() }
+        
+        val maxLength = maxOf(currentParts.size, latestParts.size)
+        for (i in 0 until maxLength) {
+            val curr = currentParts.getOrElse(i) { 0 }
+            val late = latestParts.getOrElse(i) { 0 }
+            if (late > curr) return true
+            if (curr > late) return false
+        }
+        return false
+    }
+
+    private fun showUpdateDialog(release: GithubRelease) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("发现新版本 ${release.tag_name}")
+            .setMessage("更新日志：\n${release.body}")
+            .setPositiveButton("立即去下载") { _, _ ->
+                val intent = Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(release.html_url))
+                startActivity(intent)
+            }
+            .setNegativeButton("稍后再说", null)
+            .show()
     }
 
     /**

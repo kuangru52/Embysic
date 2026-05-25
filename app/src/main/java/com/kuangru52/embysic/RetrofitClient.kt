@@ -10,6 +10,23 @@ import java.util.concurrent.TimeUnit
 object RetrofitClient {
     private const val NETEASE_BASE_URL = "https://music.163.com/"
     private const val DISCOGS_BASE_URL = "https://api.discogs.com/"
+    private const val GITHUB_BASE_URL = "https://api.github.com/"
+
+    private val githubOkHttpClient: OkHttpClient by lazy {
+        OkHttpClient.Builder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
+            .build()
+    }
+
+    val githubApi: GithubApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl(GITHUB_BASE_URL)
+            .client(githubOkHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+            .create(GithubApiService::class.java)
+    }
 
     private val discogsOkHttpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()

@@ -605,6 +605,7 @@ class HomeActivity : AppCompatActivity() {
         androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("发现新版本 ${release.tag_name}")
             .setMessage("更新日志：\n${release.body}")
+            .setCancelable(false) // 必须用户手动点击按钮
             .setPositiveButton("立即去下载") { _, _ ->
                 val intent = Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(release.html_url))
                 startActivity(intent)

@@ -19,6 +19,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
@@ -213,7 +214,10 @@ class DonationActivity : ComponentActivity() {
                         text = "https://github.com/kuangru52/embysic",
                         color = Color.White.copy(alpha = 0.4f),
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Light
+                        fontWeight = FontWeight.Light,
+                        modifier = Modifier.clickable {
+                            openUrl("https://github.com/kuangru52/embysic")
+                        }
                     )
                     Text(
                         text = "Embysic  ${BuildConfig.VERSION_NAME}",
@@ -226,13 +230,17 @@ class DonationActivity : ComponentActivity() {
         }
     }
 
-    private fun openTelegram(url: String) {
+    private fun openUrl(url: String) {
         try {
             val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
             startActivity(intent)
         } catch (e: Exception) {
             Toast.makeText(this, "无法打开链接", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun openTelegram(url: String) {
+        openUrl(url)
     }
 
     private fun joinQQGroup(groupId: String) {

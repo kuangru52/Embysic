@@ -15,7 +15,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import android.view.animation.Animation
-import android.view.animation.AnimationUtils
 import androidx.appcompat.app.AppCompatActivity
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -27,17 +26,13 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 @UnstableApi
 class RecentFragment : Fragment() {
 
     override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
-        if (!enter && (activity as? HomeActivity)?.isSwipingBack == true) {
-            return AnimationUtils.loadAnimation(context, R.anim.ios_slide_out_right).apply {
-                duration = 0
-            }
+        if ((activity as? HomeActivity)?.isSwipingBack == true) {
+            return object : Animation() {}.apply { duration = 0 }
         }
         return super.onCreateAnimation(transit, enter, nextAnim)
     }
@@ -53,7 +48,7 @@ class RecentFragment : Fragment() {
     private var userId: String = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"2.13\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_recent, container, false)
@@ -232,14 +227,18 @@ class RecentFragment : Fragment() {
         val currentSessionId = currentMediaItem?.mediaMetadata?.extras?.getString("play_session_id")
         val currentId = currentMediaItem?.mediaId
 
+        // 备份当前模式
+        val currentShuffleMode = controller.shuffleModeEnabled
+
         val mediaItems = allItems.map { song ->
             val overrideId = if (song.Id == currentId) currentSessionId else null
-            MediaItemUtils.buildMediaItem(song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
+            MediaItemUtils.buildMediaItem(requireContext(), song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
         }
 
         val isSameSong = item.Id == currentId
         if (isSameSong) {
             controller.setMediaItems(mediaItems, false)
+            controller.play()
         } else {
             val startIndex = mediaItems.indexOfFirst { it.mediaId == item.Id }.coerceAtLeast(0)
             controller.setMediaItems(mediaItems, startIndex, 0L)
@@ -252,6 +251,11 @@ class RecentFragment : Fragment() {
             
             controller.prepare()
             controller.play()
+            
+            // 核心修正：同步当前的随机模式状态
+            if (currentShuffleMode) {
+                (activity as? HomeActivity)?.updatePlaylistByMode(true)
+            }
         }
 
         // 播放后自动弹出播放页面
@@ -266,13 +270,7 @@ class RecentFragment : Fragment() {
     }
 
     private fun initApiService() {
-        if (serverUrl.isNotEmpty()) {
-            val retrofit = Retrofit.Builder()
-                .baseUrl(if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/")
-                .addConverterFactory(GsonConverterFactory.create())
-                .build()
-            apiService = retrofit.create(EmbyApiService::class.java)
-        }
+        apiService = RetrofitClient.getEmbyApiService(requireContext())
     }
 
     private fun loadRecentItems() {

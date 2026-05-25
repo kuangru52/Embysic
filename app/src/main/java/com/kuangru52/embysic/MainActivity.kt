@@ -616,7 +616,7 @@ class MainActivity : AppCompatActivity() {
 
                     val requestBody = json.toString().toRequestBody("application/json".toMediaType())
 
-                    val authHeader = "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"${BuildConfig.VERSION_NAME}\""
+                    val authHeader = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(this@MainActivity)}\", DeviceId=\"${MediaItemUtils.getDeviceId(this@MainActivity)}\", Version=\"${BuildConfig.VERSION_NAME}\""
                     Log.d("EmbyLogin", "Auth Header: $authHeader")
                     Log.d("EmbyLogin", "URL: $url")
                     Log.d("EmbyLogin", "Body: ${json.toString()}")

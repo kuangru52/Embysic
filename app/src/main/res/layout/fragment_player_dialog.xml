@@ -48,9 +48,6 @@
             android:paddingBottom="120dp"
             android:clipToPadding="false"
             android:overScrollMode="never"
-            android:requiresFadingEdge="vertical"
-            android:fadingEdge="vertical"
-            android:fadingEdgeLength="150dp"
             android:background="@android:color/transparent"
             android:cacheColorHint="@android:color/transparent" />
 

@@ -15,6 +15,8 @@ import androidx.appcompat.app.AppCompatActivity
 import android.view.animation.Animation
 import android.view.animation.AnimationUtils
 import androidx.fragment.app.Fragment
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
@@ -29,10 +31,8 @@ import retrofit2.converter.gson.GsonConverterFactory
 class FavoriteFragment : Fragment() {
 
     override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
-        if (!enter && (activity as? HomeActivity)?.isSwipingBack == true) {
-            return AnimationUtils.loadAnimation(context, R.anim.ios_slide_out_right).apply {
-                duration = 0
-            }
+        if ((activity as? HomeActivity)?.isSwipingBack == true) {
+            return object : Animation() {}.apply { duration = 0 }
         }
         return super.onCreateAnimation(transit, enter, nextAnim)
     }
@@ -48,7 +48,7 @@ class FavoriteFragment : Fragment() {
     private var userId: String = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"2.13\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_recent, container, false)
@@ -56,16 +56,22 @@ class FavoriteFragment : Fragment() {
         recyclerView = view.findViewById(R.id.rvRecent)
         progressBar = view.findViewById(R.id.progressBar)
         
-        // 同步全局模糊背景，实现“不透明的透明”
-        (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)?.let { activityBg ->
-            ivFragmentBackground.setImageDrawable(activityBg.drawable)
-            ivFragmentBackground.alpha = activityBg.alpha
+        // 沉浸式：设置 PaddingTop
+        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, systemBars.top, 0, 0)
+            insets
         }
+        
+        // 立即执行同步
+        syncBackground()
 
         setupRecyclerView()
         loadPrefs()
         initApiService()
         loadFavoriteItems()
+        
+        syncBackground() // 页面创建时立即同步背景状态
         
         return view
     }
@@ -92,14 +98,12 @@ class FavoriteFragment : Fragment() {
             return
         }
 
-        view?.postDelayed({
-            val activityBackground = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
-            if (activityBackground != null && activityBackground.drawable != null) {
-                ivFragmentBackground.setImageDrawable(activityBackground.drawable)
-                ivFragmentBackground.alpha = activityBackground.alpha
-                ivFragmentBackground.visibility = View.VISIBLE
-            }
-        }, 500)
+        val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
+        if (activityBg != null && activityBg.drawable != null) {
+            ivFragmentBackground.setImageDrawable(activityBg.drawable)
+            ivFragmentBackground.alpha = activityBg.alpha
+            ivFragmentBackground.visibility = View.VISIBLE
+        }
     }
 
     private fun updatePlaybackState(mediaItem: MediaItem?) {
@@ -223,14 +227,18 @@ class FavoriteFragment : Fragment() {
         val currentSessionId = currentMediaItem?.mediaMetadata?.extras?.getString("play_session_id")
         val currentId = currentMediaItem?.mediaId
 
+        // 备份当前模式
+        val currentShuffleMode = controller.shuffleModeEnabled
+
         val mediaItems = allItems.map { song ->
             val overrideId = if (song.Id == currentId) currentSessionId else null
-            MediaItemUtils.buildMediaItem(song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
+            MediaItemUtils.buildMediaItem(requireContext(), song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
         }
 
         val isSameSong = item.Id == currentId
         if (isSameSong) {
             controller.setMediaItems(mediaItems, false)
+            controller.play()
         } else {
             val startIndex = mediaItems.indexOfFirst { it.mediaId == item.Id }.coerceAtLeast(0)
             controller.setMediaItems(mediaItems, startIndex, 0L)
@@ -240,11 +248,18 @@ class FavoriteFragment : Fragment() {
             if (lastPositionTicks > 0) {
                 controller.seekTo(lastPositionTicks / 10000)
             }
+            
             controller.prepare()
             controller.play()
+            
+            // 核心修正：同步当前的随机模式状态
+            if (currentShuffleMode) {
+                (activity as? HomeActivity)?.updatePlaylistByMode(true)
+            }
         }
 
         // 播放后自动弹出播放页面
+        (activity as? HomeActivity)?.showPlayer()
         (activity as? HomeActivity)?.showPlayer()
     }
 
@@ -259,13 +274,7 @@ class FavoriteFragment : Fragment() {
     }
 
     private fun initApiService() {
-        if (serverUrl.isNotEmpty()) {
-            val retrofit = Retrofit.Builder()
-                .baseUrl(if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/")
-                .addConverterFactory(GsonConverterFactory.create())
-                .build()
-            apiService = retrofit.create(EmbyApiService::class.java)
-        }
+        apiService = RetrofitClient.getEmbyApiService(requireContext())
     }
 
     private fun loadFavoriteItems() {
@@ -284,7 +293,7 @@ class FavoriteFragment : Fragment() {
                 )
                 // 客户端二次过滤确保准确性
                 val favorites = response.Items.filter { it.UserData?.IsFavorite == true }
-                adapter.submitList(favorites)
+                adapter.submitList(favorites, context)
             } catch (e: Exception) {
                 // 静默处理加载失败
             } finally {

@@ -57,10 +57,11 @@ object SongDownloader {
 
                 // 使用 Emby 的 universal 音频流接口进行转码并下载
                 // 重点：设置 Container=aac 和 AudioCodec=aac 强制服务器转码
+                val deviceId = MediaItemUtils.getDeviceId(context)
                 val url = StringBuilder("${if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"}emby/Audio/$itemId/universal")
                     .append("?api_key=$token")
                     .append("&UserId=$userId")
-                    .append("&DeviceId=123456")
+                    .append("&DeviceId=$deviceId")
                     .append("&MaxStreamingBitrate=320000")
                     .append("&AudioBitrate=320000")
                     .append("&Container=aac")

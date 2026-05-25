@@ -152,10 +152,11 @@
                 <TextView
                     android:id="@+id/tvTitle"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
+                    android:layout_height="40dp"
                     android:textColor="@android:color/white"
-                    android:textSize="28sp"
+                    android:textSize="32sp"
                     android:textStyle="bold"
+                    android:letterSpacing="-0.01"
                     android:focusable="true"
                     android:focusableInTouchMode="true"
                     android:singleLine="true"
@@ -164,19 +165,21 @@
                     android:marqueeRepeatLimit="marquee_forever"
                     android:scrollHorizontally="true"
                     android:includeFontPadding="false"
-                    android:shadowColor="#80000000"
+                    android:gravity="bottom"
+                    android:shadowColor="#CC000000"
                     android:shadowDx="0"
-                    android:shadowDy="2"
-                    android:shadowRadius="4"
+                    android:shadowDy="4"
+                    android:shadowRadius="10"
                     tools:text="Song Title" />
 
                 <TextView
                     android:id="@+id/tvArtist"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:textColor="#B3FFFFFF"
+                    android:layout_height="28dp"
+                    android:textColor="#E6FFFFFF"
                     android:textSize="20sp"
-                    android:layout_marginTop="8dp"
+                    android:layout_marginTop="4dp"
+                    android:letterSpacing="0.02"
                     android:singleLine="true"
                     android:maxLines="1"
                     android:ellipsize="marquee"
@@ -185,23 +188,23 @@
                     android:focusable="true"
                     android:focusableInTouchMode="true"
                     android:includeFontPadding="false"
-                    android:shadowColor="#80000000"
+                    android:gravity="center_vertical"
+                    android:shadowColor="#99000000"
                     android:shadowDx="0"
                     android:shadowDy="2"
-                    android:shadowRadius="4"
-                    tools:text="Artist Name" />
+                    android:shadowRadius="8"
+                    tools:text="Artist - Album" />
 
                 <TextView
                     android:id="@+id/tvAudioQuality"
                     android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
+                    android:layout_height="18dp"
                     android:textColor="#B3FFFFFF"
-                    android:textSize="12sp"
-                    android:layout_marginTop="8dp"
+                    android:textSize="11sp"
+                    android:layout_marginTop="6dp"
                     android:includeFontPadding="false"
-                    android:paddingHorizontal="0dp"
-                    android:paddingVertical="0dp"
-                    tools:text="正在转码: FLAC 320kbps" />
+                    android:gravity="center_vertical"
+                    tools:text="FLAC 1411kbps" />
             </LinearLayout>
 
             <ImageView

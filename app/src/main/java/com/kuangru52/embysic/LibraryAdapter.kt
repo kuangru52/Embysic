@@ -41,10 +41,17 @@ class LibraryAdapter(
     private var isSelectionMode = false
     private val selectedIds = mutableSetOf<String>()
 
-    // 缓存颜色和偏好设置，避免 in bind 中重复读取
-    private var primaryColor: Int = 0
-    private var secondaryColor: Int = 0
-    private val highlightColor = android.graphics.Color.parseColor("#FFA000")
+    companion object {
+        // 定义两套基础颜色
+        private const val COLOR_WHITE = android.graphics.Color.WHITE
+        private const val COLOR_SECONDARY_WHITE = -0x4f000001 // #B0FFFFFF
+        
+        private const val COLOR_BLACK = android.graphics.Color.BLACK
+        private val COLOR_SECONDARY_BLACK = android.graphics.Color.parseColor("#E6000000") // 90%不透明的黑，极其接近纯黑
+        
+        private const val HIGHLIGHT_COLOR = -0x6000 // #FFA000
+    }
+
     private var serverUrl: String = ""
     private var accessToken: String = ""
 
@@ -55,7 +62,7 @@ class LibraryAdapter(
     // 预定义颜色矩阵，避免 bind 时创建对象
     private val folderHighlightMatrix = android.graphics.ColorMatrixColorFilter(
         android.graphics.ColorMatrix(floatArrayOf(
-            0f,   0f,   1.0f, 0f, 0f, // R'
+            0f,   0f,   1.0f, 0f, 0f, // R' (从蓝色通道提取以产生黄色)
             0.2f, 0.2f, 0.6f, 0f, 0f, // G'
             0.5f, 0.5f, 0f,   0f, 0f, // B'
             0f,   0f,   0f,   1f, 0f  // A'
@@ -105,11 +112,17 @@ class LibraryAdapter(
     private var lastClickTime: Long = 0
 
     private var isDarkForce = false
+    private var isSystemDarkMode = true
 
     fun submitList(newItems: List<EmbyItem>, context: android.content.Context? = null) {
         // 更新强制深色状态
         isDarkForce = (context as? HomeActivity)?.isDarkForce() ?: false
         
+        // 更新系统深色模式状态
+        context?.let {
+            val mode = it.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            isSystemDarkMode = mode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        }
         val diffResult = DiffUtil.calculateDiff(object : DiffUtil.Callback() {
             override fun getOldListSize(): Int = items.size
             override fun getNewListSize(): Int = newItems.size
@@ -133,16 +146,17 @@ class LibraryAdapter(
         super.onAttachedToRecyclerView(recyclerView)
         val context = recyclerView.context
         
+        // 即刻获取系统深色模式状态
+        val mode = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        isSystemDarkMode = mode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        
         // 预加载偏好设置
         val prefs = context.getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)
         serverUrl = prefs.getString("server_url", "") ?: ""
         accessToken = prefs.getString("access_token", "") ?: ""
 
-        // 预加载主题颜色
-        val typedArray = context.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary, android.R.attr.textColorSecondary))
-        primaryColor = typedArray.getColor(0, android.graphics.Color.BLACK)
-        secondaryColor = typedArray.getColor(1, android.graphics.Color.GRAY)
-        typedArray.recycle()
+        // 预加载主题颜色 (此处不再使用系统主题色，强制使用白色方案以适应沉浸式背景)
+        // primaryColor = ... (已移除)
 
         val neteasePrefs = context.getSharedPreferences("netease_covers", android.content.Context.MODE_PRIVATE)
         neteasePrefs.registerOnSharedPreferenceChangeListener(neteasePrefsListener)
@@ -178,12 +192,25 @@ class LibraryAdapter(
 
         fun bind(item: EmbyItem) {
             val position = bindingAdapterPosition
+            
+            // 实时检查系统主题，确保在切换系统深色/浅色模式时立即生效
+            val currentContext = itemView.context
+            val mode = currentContext.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+            isSystemDarkMode = mode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            
             tvName.text = item.Name
             val isParentFolder = item.Id == "BACK_FOLDER"
             
-            // 动态解析颜色，解决“红蓝背景”瞬间切换感
-            val currentPrimary = if (isDarkForce) android.graphics.Color.WHITE else primaryColor
-            val currentSecondary = if (isDarkForce) android.graphics.Color.parseColor("#B0FFFFFF") else secondaryColor
+            // 根据系统主题或强制深色模式决定颜色
+            val isDark = isSystemDarkMode || isDarkForce
+            val currentPrimary = if (isDark) COLOR_WHITE else COLOR_BLACK
+            val currentSecondary = if (isDark) COLOR_SECONDARY_WHITE else COLOR_SECONDARY_BLACK
+            
+            // 立即应用颜色（作为基准）
+            tvName.setTextColor(currentPrimary)
+            tvArtist.setTextColor(currentSecondary)
+            tvDuration.setTextColor(currentPrimary)
+            tvIndex.setTextColor(currentSecondary)
 
             // 处理删除按钮显示状态
             if (!isParentFolder && onItemDelete != null && expandedDeletePosition == position) {
@@ -224,7 +251,7 @@ class LibraryAdapter(
             if (isParentFolder) {
                 itemContainer.setBackgroundResource(R.drawable.bg_parent_folder_card)
                 tvIndex.visibility = View.GONE
-                tvName.setTextColor(secondaryColor)
+                tvName.setTextColor(currentSecondary) // 统一使用次要颜色
                 tvName.text = item.Name
                 tvArtist.visibility = View.GONE
                 ivIcon.colorFilter = parentFolderMatrix
@@ -252,16 +279,16 @@ class LibraryAdapter(
                     tvIndex.visibility = View.VISIBLE
                     tvIndex.background = null
                     tvIndex.text = if (item.IndexNumber != null) String.format("%02d", item.IndexNumber) else ""
-                    tvIndex.setTextColor(highlightColor)
-                    tvName.setTextColor(highlightColor)
-                    tvArtist.setTextColor(highlightColor)
-                    tvDuration.setTextColor(highlightColor)
+                    tvIndex.setTextColor(HIGHLIGHT_COLOR)
+                    tvName.setTextColor(HIGHLIGHT_COLOR)
+                    tvArtist.setTextColor(HIGHLIGHT_COLOR)
+                    tvDuration.setTextColor(HIGHLIGHT_COLOR)
                     tvDuration.alpha = 1.0f
                 } else if (isCurrentAlbumOrParent) {
                     tvIndex.visibility = View.GONE 
-                    tvName.setTextColor(highlightColor)
-                    tvArtist.setTextColor(highlightColor)
-                    tvDuration.setTextColor(highlightColor)
+                    tvName.setTextColor(HIGHLIGHT_COLOR)
+                    tvArtist.setTextColor(HIGHLIGHT_COLOR)
+                    tvDuration.setTextColor(HIGHLIGHT_COLOR)
                     tvDuration.alpha = 1.0f
                     ivIcon.colorFilter = folderHighlightMatrix
                 } else if (isFolderLike) {
@@ -277,7 +304,7 @@ class LibraryAdapter(
                     tvIndex.setTextColor(currentSecondary)
                     tvName.setTextColor(currentPrimary)
                     tvArtist.setTextColor(currentSecondary)
-                    tvDuration.setTextColor(currentPrimary)
+                    tvDuration.setTextColor(currentSecondary) // 时长也使用次要文字颜色以示区分
                     tvDuration.alpha = 1.0f
                 }
             }
@@ -296,15 +323,24 @@ class LibraryAdapter(
                 if (!isParentFolder) {
                     tvArtist.visibility = if (item.Type == "MusicAlbum") View.VISIBLE else View.GONE
                     if (item.Type == "MusicAlbum") {
-                        val artists = item.Artists?.joinToString(", ") ?: ""
+                        val artists = item.Artists?.joinToString(", ") ?: "未知艺术家"
                         tvArtist.text = artists
+                        // 强制应用最新的次要颜色
+                        tvArtist.setTextColor(currentSecondary)
                     }
                 }
             } else {
                 tvArtist.visibility = View.VISIBLE
-                val artists = item.Artists?.joinToString(", ") ?: ""
+                val artists = item.Artists?.joinToString(", ") ?: "未知艺术家"
                 val album = item.Album ?: ""
-                tvArtist.text = if (album.isNotEmpty()) "$artists    $album" else artists
+                tvArtist.text = if (album.isNotEmpty()) "$artists - $album" else artists
+                
+                // 确保颜色根据状态同步更新
+                when {
+                    isPlayingThis -> tvArtist.setTextColor(HIGHLIGHT_COLOR)
+                    isCurrentAlbumOrParent -> tvArtist.setTextColor(HIGHLIGHT_COLOR)
+                    else -> tvArtist.setTextColor(currentSecondary)
+                }
                 ivIcon.tag = item.Id
                 ivIcon.scaleType = ImageView.ScaleType.CENTER_CROP
                 

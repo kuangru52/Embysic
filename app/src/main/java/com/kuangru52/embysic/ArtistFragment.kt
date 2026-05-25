@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.Toast
 import android.view.animation.Animation
@@ -22,14 +23,14 @@ import retrofit2.converter.gson.GsonConverterFactory
 class ArtistFragment : Fragment() {
 
     override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
-        if (!enter && (activity as? HomeActivity)?.isSwipingBack == true) {
-            return AnimationUtils.loadAnimation(context, R.anim.ios_slide_out_right).apply {
-                duration = 0
-            }
+        val activity = activity as? HomeActivity
+        if (activity?.isSwipingBack == true) {
+            return object : Animation() {}.apply { duration = 0 }
         }
         return super.onCreateAnimation(transit, enter, nextAnim)
     }
 
+    private lateinit var ivFragmentBackground: android.widget.ImageView
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: ArtistAdapter
@@ -40,21 +41,69 @@ class ArtistFragment : Fragment() {
     private var userId = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.42\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"2.13\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_artist, container, false)
+        ivFragmentBackground = android.widget.ImageView(requireContext()).apply {
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+        }
+        (view as ViewGroup).addView(ivFragmentBackground, 0)
+
         recyclerView = view.findViewById(R.id.rvArtists)
         progressBar = view.findViewById(R.id.pbArtists)
         
+        // 沉浸式：设置 PaddingTop
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
+            val systemBars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            v.setPadding(0, systemBars.top, 0, 0)
+            insets
+        }
+
         setupRecyclerView()
         loadPrefs()
         initApiService()
         loadArtists()
         
-        (activity as? AppCompatActivity)?.supportActionBar?.title = "艺人"
-        
+        syncBackground()
         return view
+    }
+
+    private val playerListener = object : androidx.media3.common.Player.Listener {
+        override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+            syncBackground()
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        (activity as? HomeActivity)?.mediaController?.addListener(playerListener)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
+    }
+
+    private fun syncBackground() {
+        if (!isAdded) return
+        
+        // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
+        val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 && 
+                          resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        
+        if (isTabletLand) {
+            ivFragmentBackground.visibility = View.GONE
+            return
+        }
+
+        val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
+        if (activityBg != null && activityBg.drawable != null) {
+            ivFragmentBackground.setImageDrawable(activityBg.drawable)
+            ivFragmentBackground.alpha = activityBg.alpha
+            ivFragmentBackground.visibility = View.VISIBLE
+        }
     }
 
     private fun setupRecyclerView() {
@@ -85,12 +134,7 @@ class ArtistFragment : Fragment() {
     }
 
     private fun initApiService() {
-        if (serverUrl.isEmpty()) return
-        apiService = Retrofit.Builder()
-            .baseUrl(if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(EmbyApiService::class.java)
+        apiService = RetrofitClient.getEmbyApiService(requireContext())
     }
 
     private fun loadArtists() {
@@ -99,7 +143,7 @@ class ArtistFragment : Fragment() {
             progressBar.visibility = View.VISIBLE
             try {
                 val response = service.getArtists(userId, authHeader)
-                adapter.submitList(response.Items)
+                adapter.submitList(response.Items, context)
             } catch (e: Exception) {
                 Toast.makeText(context, "加载艺人失败: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {

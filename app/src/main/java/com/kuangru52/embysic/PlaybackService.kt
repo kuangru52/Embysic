@@ -1,575 +1,374 @@
 package com.kuangru52.embysic
 
-import android.app.PendingIntent
-import android.content.Intent
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
+import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
-import android.util.Log
-import androidx.annotation.OptIn
-import androidx.media3.common.AudioAttributes
-import androidx.media3.common.ForwardingPlayer
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
+import androidx.media3.common.*
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
-import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
-import com.google.common.collect.ImmutableList
-import androidx.media3.session.CommandButton
-import androidx.media3.session.DefaultMediaNotificationProvider
-import androidx.media3.session.MediaNotification
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
-import kotlinx.coroutines.withContext
+import androidx.media3.session.*
+import coil.ImageLoader
+import coil.request.ImageRequest
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import kotlinx.coroutines.*
+import java.io.File
 
 @UnstableApi
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
-    private var apiService: EmbyApiService? = null
-    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val handler = Handler(Looper.getMainLooper())
+    private lateinit var exoPlayer: ExoPlayer
+    private lateinit var wrappedPlayer: Player
+    private lateinit var cacheDataSourceFactory: CacheDataSource.Factory
+    private var embyApi: EmbyApiService? = null
+    private lateinit var neteaseApi: NeteaseApiService
+    private lateinit var discogsApi: DiscogsApiService
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    
+    private val neteasePrefs by lazy { getSharedPreferences("netease_covers", MODE_PRIVATE) }
+    private val imageLoader by lazy { ImageLoader(this) }
+    private var currentArtworkBitmap: Bitmap? = null
+    
+    // Discogs Token 预留
+    private val DISCOGS_TOKEN = "" 
+
     private var lastReportedItemId: String? = null
     private var currentItemExtras: Bundle? = null
     private var lastKnownPositionMs: Long = 0
-    private val history = mutableListOf<MediaItem>()
-    private var isNavigatingHistory = false
-
-    private val updateLastPosRunnable = object : Runnable {
-        override fun run() {
-            mediaSession?.player?.let {
-                if (it.isPlaying) {
-                    lastKnownPositionMs = it.currentPosition
-                }
-            }
-            handler.postDelayed(this, 1000)
-        }
-    }
-
-    private val reportProgressRunnable = object : Runnable {
-        override fun run() {
-            val player = mediaSession?.player
-            if (player != null && player.isPlaying) {
-                reportProgress(player)
-            }
-            handler.postDelayed(this, 15000) // 每 15 秒汇报一次，Emby 建议频率
-        }
-    }
-
-    private lateinit var exoPlayer: ExoPlayer
-    private lateinit var wrappedPlayer: ForwardingPlayer
-
-    // 移除旧的私有 cache 定义，使用全局 CacheManager
-    @OptIn(UnstableApi::class)
-    override fun onCreate() {
-        super.onCreate()
-        initApiService()
-        handler.post(updateLastPosRunnable)
-        
-        val accessToken = getSharedPreferences("embysic_prefs", MODE_PRIVATE).getString("access_token", "") ?: ""
-        
-        // 1. 构建支持缓存的数据源 (切换到 OkHttp 以获得更好的移动网络稳定性)
-        val httpDataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(
-            okhttp3.OkHttpClient.Builder()
-                .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-                .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-                .build()
-        )
-            .setUserAgent("Embysic/2.03")
-            .setDefaultRequestProperties(mapOf("X-Emby-Token" to accessToken))
-
-        val cacheDataSourceFactory = CacheDataSource.Factory()
-            .setCache(CacheManager.getCache(this)) // 使用 1GB 全局缓存
-            .setUpstreamDataSourceFactory(httpDataSourceFactory)
-            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-        // 2. 自定义缓冲策略：大幅增加缓冲区以应对高码率无损音频 (FLAC/WAV)
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                60000,  // minBufferMs: 提高到 60s
-                240000, // maxBufferMs: 最大缓冲 4 分钟 (源码播放需要更多冗余)
-                5000,   // bufferForPlaybackMs: 提高到 5s 确保起播稳定性
-                8000    // bufferForPlaybackAfterRebufferMs: 重缓冲后需要 8s 数据再起播
-            )
-            .setBackBuffer(60000, true) // 增加 60s 后退缓冲区，方便拖动
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-
-        // 3. 初始化 ExoPlayer
-        exoPlayer = ExoPlayer.Builder(this)
-            .setAudioAttributes(AudioAttributes.DEFAULT, true)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(cacheDataSourceFactory))
-            .setLoadControl(loadControl)
-            .build()
-
-        exoPlayer.addListener(object : Player.Listener {
-            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                val newSessionId = mediaItem?.mediaMetadata?.extras?.getString("play_session_id")
-                val oldSessionId = currentItemExtras?.getString("play_session_id")
-
-                // 如果是列表重载导致的无缝切换（SessionId 未变），跳过汇报以防止卡顿
-                if (newSessionId != null && newSessionId == oldSessionId) {
-                    Log.d("PlaybackService", "Seamless transition detected, skipping report cycle")
-                    lastReportedItemId = mediaItem.mediaId
-                    currentItemExtras = mediaItem.mediaMetadata.extras
-                    // 关键：虽然跳过 Stop/Start 汇报，但需要更新 isStartReported 状态，
-                    // 否则如果下一首 SessionId 变了，可能会因为 isStartReported 为 true 而不汇报 Start
-                    isStartReported = true 
-                    currentReportingItemId = mediaItem.mediaId
-                    return
-                }
-
-                // 1. 汇报旧歌停止：必须使用旧歌的 Extras（包含其对应的 PlaySessionId）
-                if (lastReportedItemId != null) {
-                    reportStop(lastReportedItemId, currentItemExtras, lastKnownPositionMs)
-                }
-                
-                // 2. 更新当前歌曲上下文
-                lastReportedItemId = mediaItem?.mediaId
-                currentItemExtras = mediaItem?.mediaMetadata?.extras
-                lastKnownPositionMs = 0
-                isStartReported = false
-                
-                // 3. 汇报新歌开始
-                reportStart()
-
-                // 更新历史记录（仅当非历史导航触发时）
-                if (mediaItem != null) {
-                    if (!isNavigatingHistory) {
-                        if (history.isEmpty() || history.last().mediaId != mediaItem.mediaId) {
-                            history.add(mediaItem)
-                            if (history.size > 100) history.removeAt(0)
-                        }
-                    }
-                    isNavigatingHistory = false
-                }
-            }
-
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying) {
-                    reportStart()
-                    handler.removeCallbacks(reportProgressRunnable)
-                    handler.postDelayed(reportProgressRunnable, 15000)
-                } else {
-                    handler.removeCallbacks(reportProgressRunnable)
-                    // 暂停时记录最后进度并汇报
-                    lastKnownPositionMs = exoPlayer.currentPosition
-                    reportProgress(exoPlayer)
-                }
-            }
-
-            override fun onEvents(player: Player, events: Player.Events) {
-                if (events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION) || 
-                    events.contains(Player.EVENT_TIMELINE_CHANGED) ||
-                    events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
-                    // 强制校准：在任何切换或状态变动后，强制将模式拉回用户设定的值
-                    (wrappedPlayer as? PendingModePlayer)?.applyPendingModes()
-                }
-                
-                if (events.contains(Player.EVENT_POSITION_DISCONTINUITY) || 
-                    events.contains(Player.EVENT_MEDIA_ITEM_TRANSITION)) {
-                    // 记录最后有效进度并立即上报 Seek 给 Emby
-                    lastKnownPositionMs = exoPlayer.currentPosition
-                    reportProgress(exoPlayer, "Seek")
-                }
-                
-                if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED)) {
-                    val playbackState = player.playbackState
-                    if (playbackState == Player.STATE_READY) {
-                        checkAndApplyPendingModes()
-                    }
-                    if (playbackState == Player.STATE_ENDED) {
-                        // 正常结束，汇报 0 表示“听完了”，reportStop 内部会转为 duration
-                        reportStop(exoPlayer.currentMediaItem?.mediaId, currentItemExtras, 0L)
-                        lastReportedItemId = null
-                        currentItemExtras = null
-                    }
-                }
-            }
-
-            private fun checkAndApplyPendingModes() {
-                val p = mediaSession?.player ?: return
-                if (p.duration <= 0) return
-                val remaining = p.duration - p.currentPosition
-                if (remaining in 1..1999) {
-                    (wrappedPlayer as? PendingModePlayer)?.applyPendingModes()
-                }
-            }
-        })
-
-        // 3. 强制开启寻址权限（工业级兜底）
-        wrappedPlayer = object : ForwardingPlayer(exoPlayer), PendingModePlayer {
-            private var pendingShuffleMode: Boolean? = null
-            private var pendingRepeatMode: Int? = null
-
-            override fun setShuffleModeEnabled(shuffleModeEnabled: Boolean) {
-                // 核心持久化：用户点的什么，就是什么，绝不主动清除
-                pendingShuffleMode = shuffleModeEnabled
-                super.setShuffleModeEnabled(shuffleModeEnabled)
-                if (shuffleModeEnabled) {
-                    shuffleLibrary()
-                }
-            }
-
-            override fun setRepeatMode(repeatMode: Int) {
-                pendingRepeatMode = repeatMode
-                super.setRepeatMode(repeatMode)
-                // 如果是单曲循环，强制关闭随机（业务逻辑一致性）
-                if (repeatMode == REPEAT_MODE_ONE) {
-                    pendingShuffleMode = false
-                    super.setShuffleModeEnabled(false)
-                }
-            }
-
-            override fun getShuffleModeEnabled(): Boolean {
-                // 始终返回用户最后一次点击的状态
-                return pendingShuffleMode ?: super.getShuffleModeEnabled()
-            }
-
-            override fun getRepeatMode(): Int {
-                return pendingRepeatMode ?: super.getRepeatMode()
-            }
-
-            override fun seekToNext() {
-                applyPendingModes()
-                super.seekToNext()
-                play() 
-            }
-
-            override fun seekToNextMediaItem() {
-                applyPendingModes()
-                super.seekToNextMediaItem()
-                play()
-            }
-
-            override fun applyPendingModes() {
-                // 同步状态，但不设为 null。保持持久化。
-                pendingShuffleMode?.let {
-                    if (super.getShuffleModeEnabled() != it) {
-                        super.setShuffleModeEnabled(it)
-                    }
-                }
-                pendingRepeatMode?.let {
-                    if (super.getRepeatMode() != it) {
-                        super.setRepeatMode(it)
-                    }
-                }
-            }
-
-            private fun shuffleLibrary() {
-                val service = apiService ?: return
-                val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-                val userId = prefs.getString("user_id", "") ?: ""
-                val serverUrl = prefs.getString("server_url", "") ?: ""
-                val accessToken = prefs.getString("access_token", "") ?: ""
-                val auth = getAuthHeader()
-
-                serviceScope.launch {
-                    try {
-                        val response = service.getItems(
-                            userId = userId,
-                            includeItemTypes = "Audio",
-                            recursive = true,
-                            sortBy = "Random",
-                            limit = 200,
-                            auth = auth
-                        )
-                        val items = response.Items.map { 
-                            MediaItemUtils.buildMediaItem(it, serverUrl, accessToken, userId)
-                        }
-                        withContext(Dispatchers.Main) {
-                            val currentItem = exoPlayer.currentMediaItem
-                            if (currentItem != null) {
-                                // 保留当前歌曲，将随机到的歌曲放在后面
-                                exoPlayer.setMediaItems(listOf(currentItem) + items, 0, exoPlayer.currentPosition)
-                            } else {
-                                exoPlayer.setMediaItems(items)
-                            }
-                            // 核心修复 1：列表更新后立即强制恢复用户的播放模式
-                            applyPendingModes()
-                            exoPlayer.prepare()
-                            exoPlayer.play()
-                        }
-                    } catch (e: Exception) {
-                        Log.e("PlaybackService", "Shuffle Library Error: ${e.message}")
-                    }
-                }
-            }
-
-            override fun seekToPrevious() {
-                if (history.size > 1) {
-                    isNavigatingHistory = true
-                    history.removeAt(history.size - 1) // 移除当前的
-                    val prevItem = history.removeAt(history.size - 1) // 弹出上一首
-                    setMediaItem(prevItem)
-                    prepare()
-                    play()
-                } else {
-                    super.seekToPrevious()
-                    play()
-                }
-            }
-
-            override fun seekToPreviousMediaItem() {
-                seekToPrevious()
-            }
-
-            override fun getDuration(): Long {
-                val d = super.getDuration()
-                // 如果流还没解析出时长，从 extras 拿元数据时长兜底，确保 UI 进度条能显示
-                return if (d <= 0) currentItemExtras?.getLong("duration_ms") ?: 0L else d
-            }
-
-            override fun isCurrentMediaItemSeekable(): Boolean = true
-            
-            override fun getAvailableCommands(): Player.Commands {
-                return super.getAvailableCommands().buildUpon()
-                    .add(COMMAND_PLAY_PAUSE)
-                    .add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                    .add(COMMAND_SEEK_TO_NEXT)
-                    .add(COMMAND_SEEK_TO_PREVIOUS)
-                    .add(COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                    .add(COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                    .add(COMMAND_SEEK_TO_MEDIA_ITEM)
-                    .add(COMMAND_GET_TIMELINE)
-                    .add(COMMAND_GET_METADATA)
-                    .add(COMMAND_SET_SPEED_AND_PITCH)
-                    .add(COMMAND_SET_REPEAT_MODE)
-                    .add(COMMAND_SET_SHUFFLE_MODE)
-                    .build()
-            }
-        }
-
-        mediaSession = MediaSession.Builder(this, wrappedPlayer)
-            .setSessionActivity(
-                PendingIntent.getActivity(
-                    this,
-                    0,
-                    Intent(this, HomeActivity::class.java).apply {
-                        flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-                        putExtra("open_player", true)
-                    },
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                )
-            )
-            .setCallback(object : MediaSession.Callback {
-                override fun onPlaybackResumption(
-                    session: MediaSession,
-                    controller: MediaSession.ControllerInfo
-                ): com.google.common.util.concurrent.ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-                    // 恢复播放上一次的项目和位置
-                    val player = session.player
-                    val mediaItem = player.currentMediaItem
-                    val startPositionMs = player.currentPosition
-                    
-                    val result = if (mediaItem != null) {
-                        MediaSession.MediaItemsWithStartPosition(
-                            listOf(mediaItem),
-                            player.currentMediaItemIndex,
-                            startPositionMs
-                        )
-                    } else {
-                        // 如果当前没有项目，返回空（或由 App 逻辑决定加载什么）
-                        MediaSession.MediaItemsWithStartPosition(listOf(), 0, 0L)
-                    }
-                    
-                    return com.google.common.util.concurrent.Futures.immediateFuture(result)
-                }
-
-                override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
-                    val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
-                    val playerCommands = MediaSession.ConnectionResult.DEFAULT_PLAYER_COMMANDS.buildUpon()
-                        .add(Player.COMMAND_SEEK_TO_NEXT)
-                        .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                        .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                        .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                        .build()
-                    
-                    return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
-                        .setAvailableSessionCommands(sessionCommands.build())
-                        .setAvailablePlayerCommands(playerCommands)
-                        .build()
-                }
-            }).build()
-
-        // 使用包装器来实现自定义 Provider
-        val defaultProvider = DefaultMediaNotificationProvider(this)
-        setMediaNotificationProvider(object : MediaNotification.Provider {
-            override fun createNotification(
-                session: MediaSession,
-                customLayout: ImmutableList<CommandButton>,
-                actionFactory: MediaNotification.ActionFactory,
-                onNotificationChangedCallback: MediaNotification.Provider.Callback
-            ): MediaNotification {
-                val mediaNotification = defaultProvider.createNotification(
-                    session, customLayout, actionFactory, onNotificationChangedCallback
-                )
-                // 设置颜色为极低不透明度的白色，营造玻璃感
-                mediaNotification.notification.color = 0x1EFFFFFF
-                // 禁用颜色化背景，以尝试获得更透明的系统默认效果
-                mediaNotification.notification.extras.putBoolean("android.colorized", false)
-                return mediaNotification
-            }
-
-            override fun handleCustomCommand(session: MediaSession, action: String, extras: Bundle): Boolean {
-                return defaultProvider.handleCustomCommand(session, action, extras)
-            }
-        })
-    }
-
-    private fun initApiService() {
-        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-        val url = prefs.getString("server_url", "") ?: ""
-        if (url.isNotEmpty()) {
-            apiService = Retrofit.Builder()
-                .baseUrl(if (url.endsWith("/")) url else "$url/")
-                .addConverterFactory(GsonConverterFactory.create())
-                .build().create(EmbyApiService::class.java)
-        }
-    }
-
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo) = mediaSession
-
-    private fun getAuthHeader(): String {
-        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-        val accessToken = prefs.getString("access_token", "") ?: ""
-        val userId = prefs.getString("user_id", "") ?: ""
-        // 完全对标 SPlayer 的 Header 格式
-        return "MediaBrowser Client=\"Embysic\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"2.03\", Token=\"$accessToken\", UserId=\"$userId\""
-    }
-
     private var isStartReported = false
     private var currentReportingItemId: String? = null
 
-    private fun reportStart() {
-        val player = mediaSession?.player ?: return
-        val item = player.currentMediaItem ?: return
-        val extras = item.mediaMetadata.extras ?: return
-        val service = apiService ?: return
+    override fun onCreate() {
+        super.onCreate()
         
-        // 【关键】主线程立即捕获快照
-        val itemId = extras.getString("item_id") ?: item.mediaId
-        val mediaSourceId = extras.getString("media_source_id") ?: itemId
-        val sessionId = extras.getString("play_session_id")
-        val positionTicks = player.currentPosition * 10000
-        val auth = getAuthHeader()
-        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-        val userId = prefs.getString("user_id", "") ?: ""
+        val cache = CacheManager.getCache(this)
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        cacheDataSourceFactory = CacheDataSource.Factory()
+            .setCache(cache)
+            .setUpstreamDataSourceFactory(httpDataSourceFactory)
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
+        embyApi = RetrofitClient.getEmbyApiService(this)
+        neteaseApi = RetrofitClient.neteaseApi
+        discogsApi = RetrofitClient.discogsApi
+
+        exoPlayer = ExoPlayer.Builder(this)
+            .setAudioAttributes(AudioAttributes.DEFAULT, true)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(cacheDataSourceFactory))
+            .build()
+
+        wrappedPlayer = object : ForwardingPlayer(exoPlayer) {
+            override fun getAvailableCommands(): Player.Commands = super.getAvailableCommands().buildUpon()
+                .add(COMMAND_PLAY_PAUSE)
+                .add(COMMAND_SEEK_TO_NEXT)
+                .add(COMMAND_SEEK_TO_PREVIOUS)
+                .add(COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                .add(COMMAND_SEEK_BACK)
+                .add(COMMAND_SEEK_FORWARD)
+                .build()
+        }
+
+        exoPlayer.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                // 如果是因为我们更新元数据导致的替换，则跳过，避免无限循环
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) return
+
+                if (lastReportedItemId != null) {
+                    reportStop(lastReportedItemId!!, currentItemExtras, lastKnownPositionMs, false)
+                }
+
+                if (mediaItem == null) {
+                    lastReportedItemId = null
+                    currentItemExtras = null
+                    lastKnownPositionMs = 0
+                    return
+                }
+
+                currentArtworkBitmap = null
+                preloadArtwork(mediaItem)
+
+                lastReportedItemId = mediaItem.mediaId
+                currentItemExtras = mediaItem.mediaMetadata.extras
+                lastKnownPositionMs = 0
+                isStartReported = false
+                currentReportingItemId = null
+                
+                reportStart()
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    val item = exoPlayer.currentMediaItem
+                    if (item != null) {
+                        reportStop(item.mediaId, item.mediaMetadata.extras, exoPlayer.duration, true)
+                    }
+                }
+            }
+
+            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+                lastKnownPositionMs = newPosition.positionMs
+            }
+        })
+
+        mediaSession = MediaSession.Builder(this, wrappedPlayer)
+            .setCallback(CustomCallback())
+            .build()
+            
+        startProgressReporting()
+    }
+
+    private fun preloadArtwork(item: MediaItem) {
+        val baseId = getBaseMediaId(item.mediaId)
+        val cachedPath = neteasePrefs.getString(baseId, null)
+        
+        // 1. 本地缓存
+        if (cachedPath != null && File(cachedPath).exists()) {
+            loadBitmap(Uri.fromFile(File(cachedPath)), baseId)
+            return
+        }
+
+        // 2. Emby 封面
+        val embyUri = item.mediaMetadata.artworkUri
+        val hasPrimary = item.mediaMetadata.extras?.getBoolean("has_primary_image") ?: false
+        if (hasPrimary && embyUri != null) {
+            loadBitmap(embyUri, baseId)
+        }
+
+        // 3. 在线搜索
+        serviceScope.launch(Dispatchers.IO) {
+            val title = item.mediaMetadata.title?.toString() ?: return@launch
+            val artist = item.mediaMetadata.artist?.toString() ?: ""
+            val album = item.mediaMetadata.albumTitle?.toString() ?: ""
+
+            // 网易云
+            try {
+                val query = if (album.isNotEmpty()) "$title $album" else "$title $artist"
+                val res = neteaseApi.searchSong(query)
+                val best = res.result?.songs?.let { LyricUtils.findBestMatch(it, title, artist, album, 0L) }
+                val url = best?.album?.picUrl ?: best?.id?.let {
+                    neteaseApi.getSongDetail("[{\"id\":$it}]").songs?.firstOrNull()?.al?.picUrl
+                }
+                if (url != null) {
+                    downloadAndCache(url, baseId)
+                    return@launch
+                }
+            } catch (e: Exception) {}
+
+            // Discogs
+            if (album.isNotEmpty()) {
+                try {
+                    val auth = if (DISCOGS_TOKEN.isNotEmpty()) "Token $DISCOGS_TOKEN" else ""
+                    val discogsRes = discogsApi.searchRelease(album, artist, auth = auth)
+                    val match = discogsRes.results?.firstOrNull()
+                    val picUrl = match?.cover_image ?: match?.thumb
+                    if (picUrl != null) {
+                        downloadAndCache(picUrl, baseId)
+                    }
+                } catch (e: Exception) {}
+            }
+        }
+    }
+
+    private fun loadBitmap(uri: Uri, baseId: String) {
+        val request = ImageRequest.Builder(this)
+            .data(uri)
+            .allowHardware(false)
+            .size(512)
+            .target(onSuccess = { result ->
+                currentArtworkBitmap = (result as BitmapDrawable).bitmap
+                updateMetadataWithArtwork(baseId, uri)
+            })
+            .build()
+        imageLoader.enqueue(request)
+    }
+
+    private suspend fun downloadAndCache(url: String, baseId: String) {
+        val request = ImageRequest.Builder(this).data(url).allowHardware(false).build()
+        val result = imageLoader.execute(request)
+        if (result is coil.request.SuccessResult) {
+            val bitmap = (result.drawable as BitmapDrawable).bitmap
+            val path = MediaItemUtils.saveCoverToFile(this, baseId, bitmap)
+            if (path != null) {
+                withContext(Dispatchers.Main) {
+                    currentArtworkBitmap = bitmap
+                    updateMetadataWithArtwork(baseId, Uri.fromFile(File(path)))
+                }
+            }
+        }
+    }
+
+    private fun updateMetadataWithArtwork(baseId: String, artworkUri: Uri) {
+        val currentItem = exoPlayer.currentMediaItem ?: return
+        if (getBaseMediaId(currentItem.mediaId) != baseId) return
+        
+        // 如果已经是这个 URI 了，则不再更新，防止无限触发 transition
+        if (currentItem.mediaMetadata.artworkUri == artworkUri) return
+
+        val newMetadata = currentItem.mediaMetadata.buildUpon()
+            .setArtworkUri(artworkUri)
+            .build()
+        val newItem = currentItem.buildUpon()
+            .setMediaMetadata(newMetadata)
+            .build()
+
+        val currentIndex = exoPlayer.currentMediaItemIndex
+        val currentPosition = exoPlayer.currentPosition
+        val playWhenReady = exoPlayer.playWhenReady
+
+        exoPlayer.replaceMediaItem(currentIndex, newItem)
+        exoPlayer.seekTo(currentIndex, currentPosition)
+        exoPlayer.playWhenReady = playWhenReady
+        
+        // 强制刷新会话状态，确保通知栏更新
+        mediaSession?.setCustomLayout(emptyList())
+    }
+
+    private fun getBaseMediaId(id: String): String = id.split("_").first()
+
+    private fun getAuthHeader(): String? {
+        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+        val accessToken = prefs.getString("access_token", null)
+        return if (accessToken != null) "MediaBrowser Token=\"$accessToken\"" else null
+    }
+
+    private fun getUserId(): String? {
+        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+        return prefs.getString("user_id", null)
+    }
+
+    private fun reportStart() {
+        val mediaId = exoPlayer.currentMediaItem?.mediaId ?: return
+        val extras = exoPlayer.currentMediaItem?.mediaMetadata?.extras ?: return
+        val itemId = getBaseMediaId(mediaId)
+        val playSessionId = extras.getString("play_session_id")
+        val mediaSourceId = extras.getString("media_source_id") ?: itemId
+        
+        val auth = getAuthHeader() ?: return
+        val userId = getUserId() ?: return
+        
         if (isStartReported && currentReportingItemId == itemId) return
 
         serviceScope.launch {
             try {
-                service.reportPlaybackStart(
+                embyApi?.reportPlaybackStart(
                     auth,
                     PlaybackReportInfo(
                         ItemId = itemId,
                         UserId = userId,
-                        MediaSourceId = mediaSourceId,
-                        PlaySessionId = sessionId,
-                        PositionTicks = positionTicks,
-                        PlayMethod = "DirectStream",
-                        CanSeek = true
+                        PlaySessionId = playSessionId,
+                        MediaSourceId = mediaSourceId
                     )
                 )
                 isStartReported = true
                 currentReportingItemId = itemId
-                Log.d("PlaybackService", "Emby >> Start: $itemId (Session: $sessionId)")
             } catch (e: Exception) {
-                Log.e("PlaybackService", "Emby Start Error: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
 
-    private fun reportProgress(player: Player, event: String = "TimeUpdate") {
-        val item = player.currentMediaItem ?: return
-        val extras = item.mediaMetadata.extras ?: return
-        val service = apiService ?: return
-        
-        // 【关键】主线程立即捕获快照，防止异步导致的进度归零
-        val itemId = extras.getString("item_id") ?: item.mediaId
-        val mediaSourceId = extras.getString("media_source_id") ?: itemId
-        val sessionId = extras.getString("play_session_id")
-        val positionTicks = player.currentPosition * 10000
-        val isPaused = !player.isPlaying
-        val volume = (player.volume * 100).toInt()
-        val auth = getAuthHeader()
-        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-        val userId = prefs.getString("user_id", "") ?: ""
-
-        serviceScope.launch {
-            try {
-                service.reportPlaybackProgress(
-                    auth,
-                    PlaybackProgressInfo(
-                        ItemId = itemId,
-                        UserId = userId,
-                        PositionTicks = positionTicks,
-                        MediaSourceId = mediaSourceId,
-                        PlaySessionId = sessionId,
-                        IsPaused = isPaused,
-                        PlayMethod = "DirectStream",
-                        EventName = event,
-                        VolumeLevel = volume
-                    )
-                )
-            } catch (e: Exception) {
-                Log.e("PlaybackService", "Emby Progress Error: ${e.message}")
-            }
-        }
-    }
-
-    private fun reportStop(stoppedItemId: String?, extras: Bundle?, lastPos: Long) {
-        val service = apiService ?: return
-        val itemId = stoppedItemId ?: return
-        
+    private fun reportStop(mediaId: String, extras: Bundle?, positionMs: Long, isEnded: Boolean) {
+        val itemId = getBaseMediaId(mediaId)
+        val playSessionId = extras?.getString("play_session_id")
         val mediaSourceId = extras?.getString("media_source_id") ?: itemId
-        val sessionId = extras?.getString("play_session_id")
-        val auth = getAuthHeader()
-        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-        val userId = prefs.getString("user_id", "") ?: ""
         
-        // 【核心算法】如果进度接近终点，上报总时长，触发 Emby 的“已播放”标记
-        val durationMs = extras?.getLong("duration_ms") ?: 0L
-        val finalPositionTicks = if (lastPos > 1000) lastPos * 10000 else durationMs * 10000
-
+        val auth = getAuthHeader() ?: return
+        val userId = getUserId() ?: return
+        
         serviceScope.launch {
             try {
-                service.reportPlaybackStopped(
+                if (isEnded) {
+                    embyApi?.markPlayed(userId, itemId, auth)
+                }
+                embyApi?.reportPlaybackStopped(
                     auth,
                     PlaybackReportInfo(
                         ItemId = itemId,
                         UserId = userId,
+                        PlaySessionId = playSessionId,
                         MediaSourceId = mediaSourceId,
-                        PlaySessionId = sessionId,
-                        PositionTicks = finalPositionTicks,
-                        PlayMethod = "DirectStream"
+                        PositionTicks = positionMs * 10000
                     )
                 )
-                isStartReported = false
-                currentReportingItemId = null
-                Log.d("PlaybackService", "Emby >> Stopped: $itemId at $finalPositionTicks (Session: $sessionId)")
             } catch (e: Exception) {
-                Log.e("PlaybackService", "Emby Stop Error: ${e.message}")
+                e.printStackTrace()
             }
         }
     }
 
+    private fun startProgressReporting() {
+        serviceScope.launch {
+            while (isActive) {
+                if (exoPlayer.isPlaying) {
+                    val item = exoPlayer.currentMediaItem
+                    val extras = item?.mediaMetadata?.extras
+                    if (item != null && extras != null) {
+                        val itemId = getBaseMediaId(item.mediaId)
+                        val playSessionId = extras.getString("play_session_id")
+                        val mediaSourceId = extras.getString("media_source_id") ?: itemId
+                        
+                        val auth = getAuthHeader()
+                        val userId = getUserId()
+                        
+                        if (auth != null && userId != null) {
+                            try {
+                                embyApi?.reportPlaybackProgress(
+                                    auth,
+                                    PlaybackProgressInfo(
+                                        ItemId = itemId,
+                                        UserId = userId,
+                                        PlaySessionId = playSessionId,
+                                        MediaSourceId = mediaSourceId,
+                                        PositionTicks = exoPlayer.currentPosition * 10000,
+                                        IsPaused = !exoPlayer.playWhenReady
+                                    )
+                                )
+                                lastKnownPositionMs = exoPlayer.currentPosition
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                }
+                delay(10000)
+            }
+        }
+    }
+
+    private inner class CustomCallback : MediaSession.Callback {
+        override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+            val playerCommands = session.player.availableCommands.buildUpon()
+                .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_BACK)
+                .add(Player.COMMAND_SEEK_FORWARD)
+                .build()
+            return MediaSession.ConnectionResult.accept(
+                SessionCommands.EMPTY,
+                playerCommands
+            )
+        }
+
+        override fun onAddMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, mediaItems: List<MediaItem>): ListenableFuture<List<MediaItem>> {
+            val future = SettableFuture.create<List<MediaItem>>()
+            future.set(mediaItems)
+            return future
+        }
+    }
+
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
+
     override fun onDestroy() {
-        exoPlayer.release()
-        mediaSession?.release()
-        mediaSession = null
+        serviceScope.cancel()
+        mediaSession?.run {
+            player.release()
+            release()
+            mediaSession = null
+        }
         super.onDestroy()
     }
-}
-
-interface PendingModePlayer {
-    fun applyPendingModes()
 }

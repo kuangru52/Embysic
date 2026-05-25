@@ -57,7 +57,7 @@ class LibraryFragment : Fragment() {
     private var userId = ""
     
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"2.13\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_library, container, false)
@@ -164,29 +164,12 @@ class LibraryFragment : Fragment() {
             return
         }
 
-        // 核心修复 1：物理遮挡。
-        // 设置一个纯黑背景底色。即便图片还没加载出来，也能彻底遮挡下层文字。
-        ivFragmentBackground.setBackgroundColor(android.graphics.Color.BLACK) 
-        
         val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
         if (activityBg != null && activityBg.drawable != null) {
-            // 核心修复 2：克隆 Drawable 状态，并强制不透明。
-            // 避免 Drawable 级别透明度污染
-            val constantState = activityBg.drawable.constantState
-            if (constantState != null) {
-                val newDrawable = constantState.newDrawable().mutate()
-                newDrawable.alpha = 255 
-                ivFragmentBackground.setImageDrawable(newDrawable)
-            } else {
-                ivFragmentBackground.setImageDrawable(activityBg.drawable)
-            }
-        } else {
-            ivFragmentBackground.setImageResource(R.drawable.bg_superman)
+            ivFragmentBackground.setImageDrawable(activityBg.drawable)
+            ivFragmentBackground.alpha = activityBg.alpha
+            ivFragmentBackground.visibility = View.VISIBLE
         }
-        
-        // 核心修复 3：强制 ImageView 视图层 Alpha 为 1.0
-        ivFragmentBackground.alpha = 1.0f 
-        ivFragmentBackground.visibility = View.VISIBLE
     }
 
     private fun updatePlaybackState(mediaItem: MediaItem?) {
@@ -483,16 +466,23 @@ class LibraryFragment : Fragment() {
         
         val mediaItems = playableItems.map { song ->
             val overrideId = if (song.Id == currentId) currentSessionId else null
-            MediaItemUtils.buildMediaItem(song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
+            MediaItemUtils.buildMediaItem(requireContext(), song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
         }
         
         if (isSameSong) {
             controller.setMediaItems(mediaItems, false)
+            controller.play()
         } else {
             val startIndex = playableItems.indexOfFirst { it.Id == item.Id }.coerceAtLeast(0)
             controller.setMediaItems(mediaItems, startIndex, 0L)
+            
             controller.prepare()
             controller.play()
+
+            // 核心修正：同步当前的随机模式状态
+            if (currentShuffleMode) {
+                (activity as? HomeActivity)?.updatePlaylistByMode(true)
+            }
         }
 
         // 核心修正：在 Media3 更新列表后，强制写回之前的播放模式，防止其重置为列表循环
@@ -511,11 +501,6 @@ class LibraryFragment : Fragment() {
     }
 
     private fun initApiService() {
-        if (serverUrl.isEmpty()) return
-        apiService = Retrofit.Builder()
-            .baseUrl(if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(EmbyApiService::class.java)
+        apiService = RetrofitClient.getEmbyApiService(requireContext())
     }
 }

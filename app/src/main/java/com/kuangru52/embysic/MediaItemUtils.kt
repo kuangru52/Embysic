@@ -4,6 +4,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.content.Context
 import android.graphics.Bitmap
+import android.provider.Settings
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -14,13 +15,58 @@ import java.io.FileOutputStream
 import java.util.UUID
 
 object MediaItemUtils {
-    private const val DEVICE_ID = "123456"
+    /**
+     * 获取设备唯一 ID，用于 Emby 会话识别
+     */
+    fun getDeviceId(context: Context): String {
+        return Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "123456"
+    }
+
+    /**
+     * 获取设备市场名称 (如 "Xiaomi Pad 6S Pro 12.4") 而不是认证型号 (如 "24018RPACC")
+     */
+    fun getDeviceName(context: Context): String {
+        var name = ""
+        
+        // 1. 优先从系统设置获取用户定义的设备名称 (通常就是商品名)
+        try {
+            name = Settings.Global.getString(context.contentResolver, "device_name") ?: ""
+        } catch (e: Exception) {}
+
+        if (name.isBlank()) {
+            // 2. 尝试通过反射获取 OEM 特有的市场名称属性
+            val props = arrayOf(
+                "ro.product.marketname",
+                "ro.config.marketing_name",
+                "ro.product.model.name",
+                "ro.product.nickname"
+            )
+            try {
+                val systemProperties = Class.forName("android.os.SystemProperties")
+                val getMethod = systemProperties.getMethod("get", String::class.java, String::class.java)
+                for (prop in props) {
+                    val value = getMethod.invoke(null, prop, "") as String
+                    if (value.isNotBlank()) {
+                        name = value
+                        break
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+
+        // 3. 最后兜底使用 Build.MODEL
+        if (name.isBlank()) {
+            name = android.os.Build.MODEL
+        }
+        return name
+    }
 
     // 整个 App 会话期间的源码播放开关，冷启动自动重置为 false
     var isForceDirectMode = false
 
     @OptIn(UnstableApi::class)
     fun buildMediaItem(
+        context: Context,
         song: EmbyItem,
         serverUrl: String,
         accessToken: String,
@@ -33,17 +79,19 @@ object MediaItemUtils {
         val baseUrl = if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"
         val mediaSourceId = song.MediaSources?.firstOrNull()?.Id ?: song.Id
         val sessionId = overrideSessionId ?: UUID.randomUUID().toString().replace("-", "")
+        val deviceId = getDeviceId(context)
 
         val streamUrl = if (forceDirect) {
-            "${baseUrl}emby/Audio/${song.Id}/stream?api_key=$accessToken&Static=true&MediaSourceId=$mediaSourceId"
+            "${baseUrl}emby/Audio/${song.Id}/stream?api_key=$accessToken&Static=true&MediaSourceId=$mediaSourceId&PlaySessionId=$sessionId"
         } else {
             "${baseUrl}emby/Audio/${song.Id}/stream.aac?api_key=$accessToken" +
-                    "&DeviceId=$DEVICE_ID" +
+                    "&DeviceId=$deviceId" +
                     "&MaxStreamingBitrate=256000" +
                     "&AudioBitrate=256000" +
                     "&AudioCodec=aac" +
                     "&Static=true" +
-                    "&MediaSourceId=$mediaSourceId"
+                    "&MediaSourceId=$mediaSourceId" +
+                    "&PlaySessionId=$sessionId"
         }
 
         val durationMs = if (endMs > startMs) (endMs - startMs) else ((song.RunTimeTicks ?: 0L) / 10000)
@@ -102,9 +150,13 @@ object MediaItemUtils {
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setTitle(song.Name)
+                    .setDisplayTitle(song.Name)
                     .setArtist(song.Artists?.joinToString(", ") ?: "未知艺术家")
                     .setAlbumTitle(song.Album)
+                    .setAlbumArtist(song.AlbumArtists?.firstOrNull()?.Name ?: song.Artists?.firstOrNull())
                     .setArtworkUri(Uri.parse(artworkUrl))
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .setIsPlayable(true)
                     .setExtras(extras)
                     .build()
             )

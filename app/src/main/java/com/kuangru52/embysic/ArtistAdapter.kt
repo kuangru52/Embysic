@@ -13,7 +13,7 @@ class ArtistAdapter(private val onItemClick: (EmbyItem) -> Unit) :
 
     var items: List<EmbyItem> = emptyList()
 
-    fun submitList(newList: List<EmbyItem>) {
+    fun submitList(newList: List<EmbyItem>, context: android.content.Context? = null) {
         items = newList
         notifyDataSetChanged()
     }
@@ -27,6 +27,7 @@ class ArtistAdapter(private val onItemClick: (EmbyItem) -> Unit) :
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val item = items[position]
         holder.tvName.text = item.Name
+        holder.tvName.setTextColor(android.graphics.Color.WHITE)
         
         val prefs = holder.itemView.context.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
         val serverUrl = prefs.getString("server_url", "") ?: ""

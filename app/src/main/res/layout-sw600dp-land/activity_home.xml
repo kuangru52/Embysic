@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -67,7 +66,7 @@
             android:id="@+id/lyric_top_guideline"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            app:layout_constraintHeight_percent="0.1"
+            app:layout_constraintHeight_percent="0.0667"
             app:layout_constraintTop_toTopOf="parent" />
 
         <androidx.recyclerview.widget.RecyclerView
@@ -78,9 +77,6 @@
             android:paddingBottom="120dp"
             android:clipToPadding="false"
             android:overScrollMode="never"
-            android:requiresFadingEdge="vertical"
-            android:fadingEdge="vertical"
-            android:fadingEdgeLength="180dp"
             android:background="@android:color/transparent"
             android:cacheColorHint="@android:color/transparent"
             app:layout_constraintTop_toBottomOf="@id/lyric_top_guideline"
@@ -92,7 +88,7 @@
             android:id="@+id/lyric_bottom_guideline"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            app:layout_constraintHeight_percent="0.1"
+            app:layout_constraintHeight_percent="0.0667"
             app:layout_constraintBottom_toBottomOf="parent" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>

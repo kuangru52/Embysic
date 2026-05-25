@@ -24,8 +24,6 @@ import android.net.Uri
 
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 import java.util.Locale
 
 @androidx.media3.common.util.UnstableApi
@@ -57,6 +55,7 @@ class TabletPlayerHandler(
     private var sbVolumeHint: SeekBar? = null
     private var llVolumeHint: View? = null
     private var heartLayout: HeartLayout? = null
+    private var vBackgroundScrim: View? = null
 
     private var lyricsAdapter: LyricsAdapter? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -107,6 +106,7 @@ class TabletPlayerHandler(
         sbVolumeHint = root.findViewById(R.id.sbVolumeHint)
         llVolumeHint = root.findViewById(R.id.llVolumeHint)
         heartLayout = root.findViewById(R.id.heartLayout)
+        vBackgroundScrim = root.findViewById(R.id.vBackgroundScrim)
 
         ivNeedle?.rotation = -35f
 
@@ -222,43 +222,80 @@ class TabletPlayerHandler(
         }
         override fun onRepeatModeChanged(repeatMode: Int) { updatePlayModeIcon() }
         override fun onShuffleModeEnabledChanged(enabled: Boolean) { updatePlayModeIcon() }
+        override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
+            updateFavoriteIcon(mediaMetadata.extras?.getBoolean("is_favorite", false) ?: false)
+        }
     }
 
     private fun updateMetadata(item: MediaItem?) {
+        // 处理颜色主题，统一使用 HomeActivity 的逻辑
+        val isDark = (activity as? HomeActivity)?.isDarkForce() ?: true
+        
+        // 同步通知 HomeActivity 更新全局模糊背景
+        (activity as? HomeActivity)?.updateBackground(item)
+        
+        vBackgroundScrim?.setBackgroundColor(if (isDark) 0x33000000 else 0x1A000000)
+        
         if (item == null) {
-            tvTitle?.text = "未在播放"
+            tvTitle?.text = activity.getString(R.string.not_playing)
             tvArtist?.text = ""
+            tvAudioQuality?.visibility = View.GONE
             ivAlbumArt?.setImageResource(R.drawable.disk)
             ivBlurBackground?.setImageDrawable(null)
             return
         }
         val metadata = item.mediaMetadata
+        
+        val textColorPrimary = if (isDark) Color.WHITE else Color.BLACK
+        val textColorSecondary = if (isDark) 0xB3FFFFFF.toInt() else 0xE6000000.toInt()
+        val iconTint = if (isDark) Color.WHITE else Color.BLACK
+        val iconTintSecondary = if (isDark) 0xB3FFFFFF.toInt() else 0x99000000.toInt()
+
         tvTitle?.apply {
             text = metadata.title ?: "Unknown"
+            setTextColor(textColorPrimary)
+            setShadowLayer(
+                if (isDark) 10f else 0f, 
+                0f, 4f, 
+                if (isDark) 0xCC000000.toInt() else Color.TRANSPARENT
+            )
             isSelected = true // 开启跑马灯
             requestFocus()
         }
         tvArtist?.apply {
-            text = metadata.artist ?: "Unknown Artist"
+            val artist = (metadata.artist ?: "Unknown Artist").toString().replace("\n", " ")
+            val album = metadata.albumTitle?.toString()?.replace("\n", " ")
+            text = if (album.isNullOrEmpty()) artist else "$artist - $album"
+            setTextColor(if (isDark) 0xE6FFFFFF.toInt() else 0xE6000000.toInt())
+            setShadowLayer(
+                if (isDark) 8f else 0f, 
+                0f, 2f, 
+                if (isDark) 0x99000000.toInt() else Color.TRANSPARENT
+            )
             isSelected = true
             requestFocus()
         }
+        
+        tvCurrentTime?.setTextColor(textColorSecondary)
+        tvTotalTime?.setTextColor(textColorSecondary)
+        
+        btnPrev?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
+        btnPlayPause?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
+        btnNext?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
+        btnPlayMode?.imageTintList = android.content.res.ColorStateList.valueOf(iconTintSecondary)
+        
+        seekBar?.progressTintList = android.content.res.ColorStateList.valueOf(textColorPrimary)
+        seekBar?.thumbTintList = android.content.res.ColorStateList.valueOf(textColorPrimary)
         
         val mediaId = item.mediaId
         val artworkUri = metadata.artworkUri
 
         // 封面加载策略：Emby原生(内置/服务器) > 本地网络缓存 > 实时网络搜索
         ivAlbumArt?.load(artworkUri) {
-            crossfade(true)
+            crossfade(600)
             placeholder(R.drawable.disk)
             error(R.drawable.disk)
             listener(
-                onSuccess = { _, _ ->
-                    ivBlurBackground?.load(artworkUri) {
-                        crossfade(true)
-                        transformations(BlurTransformation(activity, 25, 3))
-                    }
-                },
                 onError = { _, _ ->
                     // 原生封面失败，尝试读取缓存的网络封面
                     val prefs = activity.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
@@ -266,17 +303,13 @@ class TabletPlayerHandler(
                     if (cachedCover != null) {
                         val cachedUri = android.net.Uri.parse(cachedCover)
                         ivAlbumArt?.load(cachedUri) {
-                            crossfade(true)
+                            crossfade(600)
                             placeholder(R.drawable.disk)
                             error(R.drawable.disk)
                         }
-                        ivBlurBackground?.load(cachedUri) {
-                            crossfade(true)
-                            transformations(BlurTransformation(activity, 25, 3))
-                        }
                     } else {
                         // 既没有原生也没有缓存，搜索网络
-                        searchNeteaseCover(mediaId, metadata.title?.toString(), metadata.artist?.toString())
+                        searchNeteaseCover(mediaId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
                     }
                 }
             )
@@ -300,30 +333,38 @@ class TabletPlayerHandler(
                     lyricsAdapter?.lines = lines
                 } else {
                     lyricsAdapter?.lines = emptyList()
-                    preloadLyrics(mediaId, metadata.title?.toString(), metadata.artist?.toString())
+                    preloadLyrics(mediaId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
                 }
             } else {
                 lyricsAdapter?.lines = emptyList()
-                preloadLyrics(mediaId, metadata.title?.toString(), metadata.artist?.toString())
+                preloadLyrics(mediaId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
             }
         }
     }
 
-    private fun searchNeteaseCover(mediaId: String, title: String?, artist: String?) {
+    private fun searchNeteaseCover(mediaId: String, title: String?, artist: String?, album: String?) {
+        val currentDuration = try { controller.duration } catch (e: Exception) { 0L }
         activity.lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val neteaseApi = retrofit2.Retrofit.Builder()
-                .baseUrl("https://music.163.com/")
-                .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-                .build()
-                .create(NeteaseApiService::class.java)
-
-            val cleanedTitle = title?.replace(Regex("\\s*[([\\[].*[\\])]]"), "")?.trim() ?: ""
-            val query = if (artist.isNullOrBlank() || artist == "未知歌手") cleanedTitle else "$cleanedTitle $artist"
+            val neteaseApi = RetrofitClient.neteaseApi
+            val cleanedTitle = title?.replace(Regex("\\s*([(\\[].*?[)\\]])"), "")?.trim() ?: ""
+            
+            val query = if (!album.isNullOrBlank() && album != "未知专辑") {
+                "$album $artist"
+            } else if (!artist.isNullOrBlank() && artist != "未知歌手") {
+                "$cleanedTitle $artist"
+            } else {
+                cleanedTitle
+            }
+            
             if (query.isEmpty()) return@launch
 
             try {
-                val searchResponse = neteaseApi.searchSong(query)
-                val song = searchResponse.result?.songs?.firstOrNull() ?: return@launch
+                val searchResponse = neteaseApi.searchSong(query, limit = 10)
+                val songs = searchResponse.result?.songs ?: return@launch
+                
+                val song = LyricUtils.findBestMatch(songs, cleanedTitle, artist, album, currentDuration)
+                    ?: songs.firstOrNull() ?: return@launch
+
                 val detailResponse = neteaseApi.getSongDetail("[{\"id\":${song.id}}]")
                 val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
                 
@@ -333,12 +374,17 @@ class TabletPlayerHandler(
                             activity.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
                                 .edit().putString(mediaId, picUrl).apply()
                             
+                            // 核心：有机结合 - 同时更新封面和背景
                             ivAlbumArt?.load(picUrl) {
                                 crossfade(true)
+                                placeholder(R.drawable.disk)
+                                error(R.drawable.disk)
                             }
-                            ivBlurBackground?.load(picUrl) {
+                            
+                            // 同步更新 Activity 的模糊背景
+                            (activity as? HomeActivity)?.findViewById<ImageView>(R.id.ivBlurBackground)?.load(picUrl) {
                                 crossfade(true)
-                                transformations(BlurTransformation(activity, 25, 3))
+                                transformations(jp.wasabeef.transformers.coil.BlurTransformation(activity, 25, 3))
                             }
                         }
                     }
@@ -348,9 +394,12 @@ class TabletPlayerHandler(
     }
 
     private fun updateFavoriteIcon(isFavorite: Boolean) {
+        val isDark = (activity as? HomeActivity)?.isDarkForce() ?: false || 
+            (activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            
         btnMore?.setImageResource(if (isFavorite) R.drawable.ic_heart else R.drawable.ic_heart_border)
         btnMore?.imageTintList = android.content.res.ColorStateList.valueOf(
-            if (isFavorite) Color.RED else 0x66FFFFFF.toInt()
+            if (isFavorite) Color.RED else (if (isDark) 0x66FFFFFF.toInt() else 0x66000000.toInt())
         )
     }
 
@@ -359,6 +408,7 @@ class TabletPlayerHandler(
         val itemId = mediaItem.mediaMetadata.extras?.getString("item_id") ?: return
         val isFavorite = mediaItem.mediaMetadata.extras?.getBoolean("is_favorite", false) ?: false
         
+        val service = RetrofitClient.getEmbyApiService(activity) ?: return
         val prefs = activity.getSharedPreferences("embysic_prefs", Context.MODE_PRIVATE)
         val userId = prefs.getString("user_id", "") ?: ""
         val accessToken = prefs.getString("access_token", "") ?: ""
@@ -372,10 +422,10 @@ class TabletPlayerHandler(
                 val centerY = loc[1] + (btnMore?.height ?: 0) / 2f
 
                 if (isFavorite) {
-                    EmbyApiService.getService(activity).unmarkFavorite(userId, itemId, authHeader)
+                    service.unmarkFavorite(userId, itemId, authHeader)
                     heartLayout?.shatterHeart(centerX, centerY)
                 } else {
-                    EmbyApiService.getService(activity).markFavorite(userId, itemId, authHeader)
+                    service.markFavorite(userId, itemId, authHeader)
                     repeat(5) {
                         handler.postDelayed({
                             heartLayout?.addHeart(centerX, centerY)
@@ -391,19 +441,29 @@ class TabletPlayerHandler(
     }
 
     private fun updateAudioQuality(item: MediaItem?) {
+        val isDark = (activity as? HomeActivity)?.isDarkForce() ?: false || 
+            (activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+            
         val extras = item?.mediaMetadata?.extras ?: return
         val codec = extras.getString("codec") ?: ""
         val bitrate = extras.getInt("bitrate", 0) / 1000
         val isTranscoding = extras.getBoolean("is_transcoding", false)
 
-        if (!isTranscoding) {
-            tvAudioQuality?.text = activity.getString(R.string.source_playback, codec, bitrate)
-            tvAudioQuality?.setTextColor(Color.YELLOW)
+        val qualityText = if (!isTranscoding) {
+            "⚠️ 源码播放 $codec ${bitrate}kbps"
         } else {
-            tvAudioQuality?.text = activity.getString(R.string.transcoding, codec, bitrate)
-            tvAudioQuality?.setTextColor(0xB3FFFFFF.toInt())
+            "正在转码 $codec ${bitrate}kbps"
         }
-        tvAudioQuality?.visibility = View.VISIBLE
+        
+        tvAudioQuality?.apply {
+            text = qualityText
+            setTextColor(if (!isTranscoding) {
+                if (isDark) Color.YELLOW else 0xFFF57C00.toInt()
+            } else {
+                if (isDark) 0x99FFFFFF.toInt() else 0x99000000.toInt()
+            })
+            visibility = View.VISIBLE
+        }
     }
 
     private fun setupQualityClick() {
@@ -424,6 +484,8 @@ class TabletPlayerHandler(
                 val extras = currentItem.mediaMetadata.extras ?: return@setOnClickListener
                 val itemId = extras.getString("item_id") ?: return@setOnClickListener
                 
+                val service = RetrofitClient.getEmbyApiService(activity) ?: return@setOnClickListener
+                
                 activity.lifecycleScope.launch {
                     try {
                         val prefs = activity.getSharedPreferences("embysic_prefs", Context.MODE_PRIVATE)
@@ -431,9 +493,10 @@ class TabletPlayerHandler(
                         val accessToken = prefs.getString("access_token", "") ?: ""
                         val userId = prefs.getString("user_id", "") ?: ""
                         
-                        val embyItem = EmbyApiService.getService(activity).getItem(userId, itemId, "MediaBrowser Token=\"$accessToken\"")
+                        val embyItem = service.getItem(userId, itemId, "MediaBrowser Token=\"$accessToken\"")
                         
                         val newItem = MediaItemUtils.buildMediaItem(
+                            activity,
                             embyItem, serverUrl, accessToken, userId,
                             forceDirect = MediaItemUtils.isForceDirectMode
                         )
@@ -498,7 +561,7 @@ class TabletPlayerHandler(
         }
     }
 
-    private fun preloadLyrics(mediaId: String, title: String?, artist: String?) {
+    private fun preloadLyrics(mediaId: String, title: String?, artist: String?, album: String?) {
         val lyricPrefs = activity.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE)
         val cachedJson = lyricPrefs.getString(mediaId, null)
         if (cachedJson != null) {
@@ -515,11 +578,12 @@ class TabletPlayerHandler(
 
         activity.lifecycleScope.launch {
             try {
+                val service = RetrofitClient.getEmbyApiService(activity) ?: return@launch
                 val prefs = activity.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
                 val accessToken = prefs.getString("access_token", "") ?: ""
                 val authHeader = "MediaBrowser Token=\"$accessToken\""
                 
-                val response = EmbyApiService.getService(activity).getLyrics(mediaId, authHeader)
+                val response = service.getLyrics(mediaId, authHeader)
                 val rawLines = response.Lines ?: response.Lyrics ?: response.LyricLines
                 @Suppress("UNCHECKED_CAST")
                 val actualLines = rawLines as? List<LyricLine>
@@ -538,28 +602,32 @@ class TabletPlayerHandler(
                         lyricsAdapter?.lines = finalLines
                     }
                 } else {
-                    searchNeteaseLyrics(mediaId, title, artist)
+                    searchNeteaseLyrics(mediaId, title, artist, album)
                 }
             } catch (e: Exception) { 
                 Log.e("TabletPlayer", "Load lyrics failed: ${e.message}")
-                searchNeteaseLyrics(mediaId, title, artist)
+                searchNeteaseLyrics(mediaId, title, artist, album)
             }
         }
     }
 
-    private fun searchNeteaseLyrics(mediaId: String, title: String?, artist: String?) {
+    private fun searchNeteaseLyrics(mediaId: String, title: String?, artist: String?, album: String?) {
         val cleanedTitle = title?.replace(Regex("\\s*([(\\[].*?[)\\]])"), "")?.trim() ?: ""
-        val isUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
-        val query = if (isUnknown) cleanedTitle else "$cleanedTitle $artist"
+        val isArtistUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
+        val isAlbumUnknown = album.isNullOrBlank() || album.contains("未知") || album.contains("Unknown")
+
+        val query = if (!isAlbumUnknown && !isArtistUnknown) {
+            "$album $artist"
+        } else if (!isArtistUnknown) {
+            "$cleanedTitle $artist"
+        } else {
+            cleanedTitle
+        }
+        
         if (query.isEmpty()) return
 
         activity.lifecycleScope.launch {
-            val neteaseApi = retrofit2.Retrofit.Builder()
-                .baseUrl("https://music.163.com/")
-                .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-                .build()
-                .create(NeteaseApiService::class.java)
-
+            val neteaseApi = RetrofitClient.neteaseApi
             try {
                 // 增加搜索限制到 20 条，以便从中择优
                 val searchResponse = neteaseApi.searchSong(query, limit = 20)
@@ -567,8 +635,37 @@ class TabletPlayerHandler(
 
                 // 智能匹配算法
                 val currentDuration = controller.duration
-                val bestMatch = LyricUtils.findBestMatch(songs, cleanedTitle, artist, currentDuration)
+                val bestMatch = LyricUtils.findBestMatch(songs, cleanedTitle, artist, album, currentDuration)
                     ?: throw Exception("No suitable match")
+
+                // 【有机结合】既然找到了确切的歌曲匹配，同步拉取高清封面
+                launch {
+                    try {
+                        val detailResponse = neteaseApi.getSongDetail("[{\"id\":${bestMatch.id}}]")
+                        val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
+                        if (!picUrl.isNullOrEmpty()) {
+                            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                if (controller.currentMediaItem?.mediaId == mediaId) {
+                                    // 存入封面缓存
+                                    activity.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
+                                        .edit().putString(mediaId, picUrl).apply()
+                                    
+                                    // 更新中心封面
+                                    ivAlbumArt?.load(picUrl) {
+                                        crossfade(true)
+                                        placeholder(R.drawable.disk)
+                                    }
+                                    
+                                    // 同步更新 Activity 的模糊背景
+                                    (activity as? HomeActivity)?.findViewById<ImageView>(R.id.ivBlurBackground)?.load(picUrl) {
+                                        crossfade(true)
+                                        transformations(jp.wasabeef.transformers.coil.BlurTransformation(activity, 25, 3))
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) { e.printStackTrace() }
+                }
 
                 val lrcResponse = neteaseApi.getLyric(bestMatch.id)
                 val lyricText = lrcResponse.lrc?.lyric
@@ -593,8 +690,8 @@ class TabletPlayerHandler(
                 }
             } catch (e: Exception) {
                 // 如果带歌手搜不到，尝试只搜标题
-                if (!isUnknown && cleanedTitle.isNotEmpty() && !query.equals(cleanedTitle)) {
-                    searchNeteaseLyrics(mediaId, cleanedTitle, null)
+                if (!isArtistUnknown && cleanedTitle.isNotEmpty() && !query.equals(cleanedTitle)) {
+                    searchNeteaseLyrics(mediaId, cleanedTitle, null, null)
                 }
             }
         }
@@ -612,7 +709,7 @@ class TabletPlayerHandler(
             val isUserScrolling = (rvLyricsRight?.getTag(R.id.bottom_container) as? Boolean) ?: false
             lyricsAdapter?.updateActiveLine(current)?.let { index ->
                 if (index != -1 && !isUserScrolling) {
-                    (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 3)
+                    (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 4)
                 }
             }
         } else {
@@ -650,16 +747,19 @@ class TabletPlayerHandler(
 
         when {
             isShuffle -> {
+                // 随机 -> 单曲
                 nextShuffle = false
                 nextRepeat = Player.REPEAT_MODE_ONE
                 hint = activity.getString(R.string.repeat_one)
             }
             repeatMode == Player.REPEAT_MODE_ONE -> {
+                // 单曲 -> 列表
                 nextShuffle = false
                 nextRepeat = Player.REPEAT_MODE_ALL
                 hint = activity.getString(R.string.repeat_all)
             }
             else -> {
+                // 列表 -> 随机
                 nextShuffle = true
                 nextRepeat = Player.REPEAT_MODE_ALL
                 hint = activity.getString(R.string.shuffle)
@@ -670,7 +770,12 @@ class TabletPlayerHandler(
         controller.shuffleModeEnabled = nextShuffle
         controller.repeatMode = nextRepeat
 
-        // 2. 立即更新 UI，不等待回调，解决状态同步延迟导致的图标错误
+        // 2. 根据模式刷新播放列表
+        if (isShuffle != nextShuffle) {
+            (activity as? HomeActivity)?.updatePlaylistByMode(nextShuffle)
+        }
+
+        // 3. 立即更新 UI，不等待回调，解决状态同步延迟导致的图标错误
         updatePlayModeUI(nextShuffle, nextRepeat, hint)
     }
 
@@ -713,6 +818,10 @@ class TabletPlayerHandler(
         llVolumeHint?.animate()?.alpha(0f)?.setDuration(500)?.withEndAction {
             llVolumeHint?.visibility = View.INVISIBLE
         }?.start()
+    }
+
+    fun onConfigurationChanged() {
+        updateMetadata(controller.currentMediaItem)
     }
 
     private fun formatTime(ms: Long): String {

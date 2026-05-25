@@ -9,23 +9,6 @@ import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 interface EmbyApiService {
-    companion object {
-        private var instance: EmbyApiService? = null
-        fun getService(context: android.content.Context): EmbyApiService {
-            if (instance == null) {
-                val prefs = context.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
-                val baseUrl = prefs.getString("server_url", "") ?: ""
-                if (baseUrl.isNotEmpty()) {
-                    instance = retrofit2.Retrofit.Builder()
-                        .baseUrl(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
-                        .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
-                        .build()
-                        .create(EmbyApiService::class.java)
-                }
-            }
-            return instance!!
-        }
-    }
     @POST("emby/Users/AuthenticateByName")
     suspend fun authenticateByName(
         @Header("X-Emby-Authorization") auth: String,

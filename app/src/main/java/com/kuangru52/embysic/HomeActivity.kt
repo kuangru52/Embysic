@@ -68,31 +68,6 @@ class HomeActivity : AppCompatActivity() {
     private var tabletPlayerHandler: TabletPlayerHandler? = null
     var isSwipingBack: Boolean = false
 
-    private val neteaseApi: NeteaseApiService by lazy {
-        val okHttpClient = okhttp3.OkHttpClient.Builder()
-            .connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .readTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .writeTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-            .protocols(listOf(okhttp3.Protocol.HTTP_1_1))
-            .addInterceptor { chain ->
-                val request = chain.request()
-                val newRequest = request.newBuilder()
-                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    .header("Referer", "https://music.163.com/")
-                    .header("Cookie", "os=pc; appver=2.10.12; osver=Microsoft-Windows-10-Professional-build-19045-64bit; MUSIC_U=; __remember_me=true")
-                    .build()
-                chain.proceed(newRequest)
-            }
-            .build()
-            
-        Retrofit.Builder()
-            .baseUrl("https://music.163.com/")
-            .client(okHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(NeteaseApiService::class.java)
-    }
-
     fun isDarkForce(): Boolean {
         val isTabletLandscape = isTablet && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
         val systemIsDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
@@ -162,15 +137,7 @@ class HomeActivity : AppCompatActivity() {
     }
 
     private fun initApiService() {
-        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", "") ?: ""
-        if (serverUrl.isNotEmpty()) {
-            apiService = Retrofit.Builder()
-                .baseUrl(if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/")
-                .addConverterFactory(GsonConverterFactory.create())
-                .build()
-                .create(EmbyApiService::class.java)
-        }
+        apiService = RetrofitClient.getEmbyApiService(this)
     }
 
     private fun setupMediaController() {
@@ -182,6 +149,10 @@ class HomeActivity : AppCompatActivity() {
             
             if (controller.currentMediaItem == null) {
                 restoreLastPlayedItem(controller)
+            } else {
+                // 冷启动且已有项目（可能由于 Service 重用），确保默认模式
+                controller.repeatMode = Player.REPEAT_MODE_ALL
+                controller.shuffleModeEnabled = false
             }
 
             findViewById<ComposeView>(R.id.bottom_container).setContent {
@@ -238,7 +209,105 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateBackground(item: MediaItem?) {
+    /**
+     * 根据模式更新播放列表 (增量无缝版本)
+     * @param isShuffle 是否切换到随机模式
+     */
+    fun updatePlaylistByMode(isShuffle: Boolean) {
+        val controller = mediaController ?: return
+        val currentItem = controller.currentMediaItem ?: return
+        val currentId = currentItem.mediaId
+        
+        val service = apiService ?: return
+        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+        val userId = prefs.getString("user_id", "") ?: ""
+        val accessToken = prefs.getString("access_token", "") ?: ""
+        val serverUrl = prefs.getString("server_url", "") ?: ""
+        val auth = "MediaBrowser Token=\"$accessToken\""
+
+        activityScope.launch {
+            try {
+                // 1. 准备新列表的数据
+                val beforeItems = mutableListOf<MediaItem>()
+                val afterItems = mutableListOf<MediaItem>()
+
+                if (isShuffle) {
+                    // 随机模式：全库拉取 200 首，排除当前项
+                    val response = service.getItems(userId, limit = 200, sortBy = "Random", auth = auth)
+                    val randomItems = response.Items.filter { it.Id != currentId }
+                        .map { MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) }
+                    
+                    // 随机模式下，我们将当前项作为起点，其余全部排在后面
+                    afterItems.addAll(randomItems)
+                } else {
+                    // 列表/单曲模式：拉取同文件夹歌曲
+                    var parentId = currentItem.mediaMetadata.extras?.getString("parent_id")
+                    if (parentId == null) {
+                        try {
+                            val item = service.getItem(userId, currentId, auth, auth)
+                            parentId = item.ParentId ?: item.AlbumId
+                        } catch (e: Exception) {}
+                    }
+
+                    if (parentId != null) {
+                        val response = service.getItems(userId, parentId = parentId, auth = auth)
+                        val folderItems = response.Items.sortedBy { it.SortName ?: it.Name }
+                        val splitIndex = folderItems.indexOfFirst { it.Id == currentId }
+                        
+                        if (splitIndex != -1) {
+                            // 分割出当前项之前和之后的歌曲
+                            beforeItems.addAll(folderItems.subList(0, splitIndex).map { 
+                                MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) 
+                            })
+                            afterItems.addAll(folderItems.subList(splitIndex + 1, folderItems.size).map { 
+                                MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) 
+                            })
+                        } else {
+                            // 如果当前项不在文件夹列表中，则全部加在后面
+                            afterItems.addAll(folderItems.map { 
+                                MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) 
+                            })
+                        }
+                    }
+                }
+
+                // 2. 执行增量更新以保持播放无缝
+                // 关键：不要调用 setMediaItems，因为它会重置 Timeline 并清空缓冲
+                val currentIndex = controller.currentMediaItemIndex
+                val totalItems = controller.mediaItemCount
+
+                // a. 移除当前项之后的所有项目
+                if (totalItems > currentIndex + 1) {
+                    controller.removeMediaItems(currentIndex + 1, totalItems)
+                }
+                
+                // b. 移除当前项之前的所有项目
+                if (currentIndex > 0) {
+                    controller.removeMediaItems(0, currentIndex)
+                }
+
+                // 此时，Playlist 中只剩下【当前正在播放的项目】，且索引必然为 0
+                // c. 在当前项之前插入新项目
+                if (beforeItems.isNotEmpty()) {
+                    controller.addMediaItems(0, beforeItems)
+                }
+                
+                // d. 在当前项之后插入新项目 (此时当前项索引已变为 beforeItems.size)
+                if (afterItems.isNotEmpty()) {
+                    controller.addMediaItems(controller.mediaItemCount, afterItems)
+                }
+                
+                // 3. 确保播放器准备就绪（增量更新通常不需要重新 prepare，除非之前是 IDLE）
+                if (controller.playbackState == Player.STATE_IDLE) {
+                    controller.prepare()
+                }
+            } catch (e: Exception) {
+                Log.e("HomeActivity", "Update playlist error: ${e.message}")
+            }
+        }
+    }
+
+    fun updateBackground(item: MediaItem?) {
         val ivBlurBackground = findViewById<ImageView>(R.id.ivBlurBackground) ?: return
         
         // 如果是手机模式（非平板），固定使用 bg_superman 的模糊版
@@ -260,21 +329,37 @@ class HomeActivity : AppCompatActivity() {
             if (isTablet && item != null) {
                 listener(onError = { _, _ ->
                     val metadata = item.mediaMetadata
-                    searchNeteaseCoverForBackground(item.mediaId, metadata.title?.toString(), metadata.artist?.toString())
+                    searchNeteaseCoverForBackground(
+                        item.mediaId, 
+                        metadata.title?.toString(), 
+                        metadata.artist?.toString(),
+                        metadata.albumTitle?.toString()
+                    )
                 })
             }
         }
     }
 
-    private fun searchNeteaseCoverForBackground(mediaId: String, title: String?, artist: String?) {
+    private fun searchNeteaseCoverForBackground(mediaId: String, title: String?, artist: String?, album: String? = null) {
+        val currentDuration = mediaController?.currentMediaItem?.mediaMetadata?.extras?.getLong("duration_ms") ?: 0L
         lifecycleScope.launch(Dispatchers.IO) {
-            val cleanedTitle = title?.replace(Regex("\\s*[([\\[].*[\\])]]"), "")?.trim() ?: ""
-            val query = if (artist.isNullOrBlank() || artist == "未知歌手") cleanedTitle else "$cleanedTitle $artist"
+            val rawTitle = title ?: ""
+            val query = if (album.isNullOrBlank() || album == "未知专辑") {
+                if (artist.isNullOrBlank() || artist == "未知歌手") rawTitle else "$rawTitle $artist"
+            } else {
+                "$album $artist"
+            }
             if (query.isEmpty()) return@launch
 
             try {
+                val neteaseApi = RetrofitClient.neteaseApi
                 val searchResponse = neteaseApi.searchSong(query)
-                val song = searchResponse.result?.songs?.firstOrNull() ?: return@launch
+                val songs = searchResponse.result?.songs ?: return@launch
+                
+                // 使用优化后的匹配逻辑
+                val song = LyricUtils.findBestMatch(songs, rawTitle, artist, album, currentDuration)
+                    ?: songs.firstOrNull() ?: return@launch
+
                 val detailResponse = neteaseApi.getSongDetail("[{\"id\":${song.id}}]")
                 val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
                 
@@ -308,10 +393,24 @@ class HomeActivity : AppCompatActivity() {
             try {
                 val response = service.getRecentlyPlayedItems(userId, limit = 1, auth = auth)
                 response.Items.firstOrNull()?.let { item ->
-                    val mediaItem = MediaItemUtils.buildMediaItem(item, serverUrl, accessToken, userId)
-                    controller.setMediaItem(mediaItem)
-                    val lastPos = (item.UserData?.PlaybackPositionTicks ?: 0L) / 10000
-                    if (lastPos > 0) controller.seekTo(lastPos)
+                    // 默认冷启动为列表循环，加载同文件夹列表
+                    val parentId = item.ParentId ?: item.AlbumId
+                    val folderResponse = if (parentId != null) {
+                        service.getItems(userId, parentId = parentId, auth = auth)
+                    } else null
+                    
+                    val currentId = item.Id
+                    val mediaItems = if (folderResponse != null && folderResponse.Items.isNotEmpty()) {
+                        val sorted = folderResponse.Items.sortedBy { it.SortName ?: it.Name }
+                        sorted.map { MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) }
+                    } else {
+                        listOf(MediaItemUtils.buildMediaItem(this@HomeActivity, item, serverUrl, accessToken, userId))
+                    }
+                    
+                    val startIndex = mediaItems.indexOfFirst { it.mediaId == currentId }.coerceAtLeast(0)
+                    controller.setMediaItems(mediaItems, startIndex, (item.UserData?.PlaybackPositionTicks ?: 0L) / 10000)
+                    controller.repeatMode = Player.REPEAT_MODE_ALL
+                    controller.shuffleModeEnabled = false
                     controller.prepare()
                 }
             } catch (e: Exception) { Log.e("HomeActivity", "Restore error: ${e.message}") }
@@ -319,6 +418,7 @@ class HomeActivity : AppCompatActivity() {
     }
 
     private fun scanLibrary() {
+        val service = apiService ?: return
         val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
         val userId = prefs.getString("user_id", "") ?: ""
         val accessToken = prefs.getString("access_token", "") ?: ""
@@ -326,13 +426,13 @@ class HomeActivity : AppCompatActivity() {
         activityScope.launch {
             try {
                 // 1. 获取所有顶级视图
-                val views = apiService?.getUserViews(userId, auth)
+                val views = service.getUserViews(userId, auth)
                 // 2. 找到 CollectionType 为 "music" 的库（即音乐库）
-                val musicLibrary = views?.Items?.find { it.CollectionType == "music" }
+                val musicLibrary = views.Items.find { it.CollectionType == "music" }
                 
                 if (musicLibrary != null) {
                     // 3. 只刷新这个特定音乐库的 ID
-                    apiService?.refreshItem(musicLibrary.Id, auth)
+                    service.refreshItem(musicLibrary.Id, auth)
                     Toast.makeText(this@HomeActivity, R.string.sync_library_started, Toast.LENGTH_SHORT).show()
                 } else {
                     Log.w("HomeActivity", "Music library not found for scanning")
@@ -484,6 +584,7 @@ class HomeActivity : AppCompatActivity() {
         super.onConfigurationChanged(newConfig)
         updateStatusBarIcons()
         refreshSystemEffect()
+        tabletPlayerHandler?.onConfigurationChanged()
     }
 
     private fun getStatusBarHeight(): Int {

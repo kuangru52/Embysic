@@ -46,31 +46,40 @@ class LyricsAdapter(
         return ViewHolder(view)
     }
 
+    @androidx.media3.common.util.UnstableApi
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val line = lines[position]
+        val context = holder.itemView.context
+        val isDark = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+            || (context as? HomeActivity)?.isDarkForce() ?: false
+            
         val textView = holder.itemView.findViewById<TextView>(R.id.tvLyricLine)
         textView.text = line.text
         textView.textAlignment = View.TEXT_ALIGNMENT_CENTER
         textView.setPadding(32, 16, 32, 16) // 进一步缩小垂直内边距 (从 28 降至 16)
         
         // 增加文字阴影，防止背景亮时看不清
-        textView.setShadowLayer(4f, 2f, 2f, 0x80000000.toInt())
+        if (isDark) {
+            textView.setShadowLayer(4f, 2f, 2f, 0x80000000.toInt())
+        } else {
+            textView.setShadowLayer(2f, 1f, 1f, 0x40000000.toInt())
+        }
         
         val isMetadata = line.timeMs == -1L
         
         if (isMetadata) {
-            textView.setTextColor(0x99FFFFFF.toInt()) // 半透明白
+            textView.setTextColor(if (isDark) 0x99FFFFFF.toInt() else 0x99000000.toInt())
             textView.textSize = 13f
             textView.alpha = 1.0f
             textView.paint.isFakeBoldText = false
         } else {
             if (position == currentLineIndex) {
-                textView.setTextColor(android.graphics.Color.WHITE) // 纯白
+                textView.setTextColor(if (isDark) android.graphics.Color.WHITE else android.graphics.Color.BLACK)
                 textView.textSize = 18f
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = true
             } else {
-                textView.setTextColor(0x66FFFFFF.toInt()) // 更明显的非激活态透明度
+                textView.setTextColor(if (isDark) 0x66FFFFFF.toInt() else 0x66000000.toInt())
                 textView.textSize = 15f
                 textView.alpha = 1.0f
                 textView.paint.isFakeBoldText = false

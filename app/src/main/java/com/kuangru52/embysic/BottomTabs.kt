@@ -52,6 +52,7 @@ fun BottomTabs(
 
     var title by remember { mutableStateOf(controller.currentMediaItem?.mediaMetadata?.title?.toString() ?: notPlayingStr) }
     var artist by remember { mutableStateOf(controller.currentMediaItem?.mediaMetadata?.artist?.toString() ?: "") }
+    var album by remember { mutableStateOf(controller.currentMediaItem?.mediaMetadata?.albumTitle?.toString() ?: "") }
     var artworkUri by remember { mutableStateOf(controller.currentMediaItem?.mediaMetadata?.artworkUri) }
     var isPlaying by remember { mutableStateOf(controller.isPlaying) }
     var progress by remember { mutableFloatStateOf(0f) }
@@ -66,6 +67,7 @@ fun BottomTabs(
             override fun onMediaMetadataChanged(metadata: MediaMetadata) {
                 title = metadata.title?.toString() ?: notPlayingStr
                 artist = metadata.artist?.toString() ?: ""
+                album = metadata.albumTitle?.toString() ?: ""
                 artworkUri = metadata.artworkUri
             }
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
@@ -210,8 +212,9 @@ fun BottomTabs(
                             modifier = Modifier.basicMarquee()
                         )
                         if (artist.isNotEmpty()) {
+                            val displayArtist = if (album.isNotEmpty()) "$artist - $album" else artist
                             Text(
-                                text = artist,
+                                text = displayArtist,
                                 fontSize = 13.sp,
                                 color = subTextColor,
                                 maxLines = 1,

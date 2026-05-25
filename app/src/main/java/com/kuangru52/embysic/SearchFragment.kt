@@ -61,11 +61,8 @@ import retrofit2.converter.gson.GsonConverterFactory
 class SearchFragment : Fragment() {
 
     override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
-        if (!enter && (activity as? HomeActivity)?.isSwipingBack == true) {
-            // 如果正在手势返回，返回一个空动画，避免系统再次触发 ios_slide_out_right
-            return AnimationUtils.loadAnimation(context, R.anim.ios_slide_out_right).apply {
-                duration = 0
-            }
+        if ((activity as? HomeActivity)?.isSwipingBack == true) {
+            return object : Animation() {}.apply { duration = 0 }
         }
         return super.onCreateAnimation(transit, enter, nextAnim)
     }
@@ -81,7 +78,7 @@ class SearchFragment : Fragment() {
     private var userId = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Android\", Device=\"Android Phone\", DeviceId=\"123456\", Version=\"1.45\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"2.13\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val root = FrameLayout(requireContext()).apply {
@@ -444,15 +441,22 @@ class SearchFragment : Fragment() {
 
     private fun playMusic(item: EmbyItem, allItems: List<EmbyItem>) {
         val controller = (activity as? HomeActivity)?.mediaController ?: return
+        val currentShuffleMode = controller.shuffleModeEnabled
+
         val playableItems = allItems.filter { !it.IsFolder }
         val mediaItems = playableItems.map { song ->
-            MediaItemUtils.buildMediaItem(song, serverUrl, accessToken, userId)
+            MediaItemUtils.buildMediaItem(requireContext(), song, serverUrl, accessToken, userId)
         }
         val startIndex = playableItems.indexOfFirst { it.Id == item.Id }.coerceAtLeast(0)
-        controller.stop()
         controller.setMediaItems(mediaItems, startIndex, 0L)
+        
         controller.prepare()
         controller.play()
+        
+        // 核心修正：同步当前的随机模式状态
+        if (currentShuffleMode) {
+            (activity as? HomeActivity)?.updatePlaylistByMode(true)
+        }
         (activity as? HomeActivity)?.showPlayer()
     }
 
@@ -465,11 +469,6 @@ class SearchFragment : Fragment() {
     }
 
     private fun initApiService() {
-        if (serverUrl.isEmpty()) return
-        apiService = Retrofit.Builder()
-            .baseUrl(if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(EmbyApiService::class.java)
+        apiService = RetrofitClient.getEmbyApiService(requireContext())
     }
 }

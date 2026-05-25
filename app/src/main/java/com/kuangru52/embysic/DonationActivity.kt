@@ -208,12 +208,20 @@ class DonationActivity : ComponentActivity() {
                     .padding(bottom = 24.dp),
                 contentAlignment = Alignment.BottomCenter
             ) {
-                Text(
-                    text = "Embysic  ${BuildConfig.VERSION_NAME}",
-                    color = Color.White.copy(alpha = 0.4f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Light
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "https://github.com/kuangru52/embysic",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Light
+                    )
+                    Text(
+                        text = "Embysic  ${BuildConfig.VERSION_NAME}",
+                        color = Color.White.copy(alpha = 0.4f),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Light
+                    )
+                }
             }
         }
     }

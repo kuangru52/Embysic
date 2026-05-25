@@ -7,6 +7,10 @@
 
 Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户端。它旨在为用户提供极致的音乐播放体验，结合了现代化的 UI 设计与流畅的交互逻辑，让您的 Emby 音乐库焕发新生。
 
+### 📥 下载与安装
+- **最新版本**：[v2.14 - 点击从 GitHub Releases 下载](https://github.com/kuangru52/embysic/releases/latest)
+- **更新亮点**：封面与歌词智能联动，沉浸式高斯模糊背景同步，性能大幅优化。
+
 ### 项目简介
 
 Embysic 不仅仅是一个播放器，它追求原生般的流畅感与精致的视觉细节。项目采用了 Material Design 3 设计规范，并针对音乐播放场景深度优化了手势操作与界面过渡动画。
@@ -53,6 +57,10 @@ Embysic 不仅仅是一个播放器，它追求原生般的流畅感与精致的
 ## English
 
 Embysic is a high-aesthetic, lightweight Emby music client designed for Android. It aims to provide the ultimate music playback experience by combining modern UI design with smooth interaction logic, bringing your Emby music library to life.
+
+### 📥 Download
+- **Latest Version**: [v2.14 - Download from GitHub Releases](https://github.com/kuangru52/embysic/releases/latest)
+- **Key Highlights**: Smart cover-lyric synchronization, immersive Gaussian blur background sync, and significant performance optimizations.
 
 ### Project Introduction
 

@@ -2,11 +2,124 @@ package com.kuangru52.embysic
 
 import kotlin.math.abs
 
+import android.content.Context
+import android.graphics.Bitmap
+import android.util.Log
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.edit
+import coil.imageLoader
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import kotlin.math.abs
+
 /**
  * 核心匹配工具类
  * 注意：虽然名字叫 LyricUtils，但它承担了搜索结果（歌词、封面）与当前歌曲的【元数据匹配】核心逻辑。
  */
 object LyricUtils {
+    // 内存缓存歌词，供全局（手机/平板）共享
+    val lyricsCache: MutableMap<String, List<LrcLine>> = mutableMapOf()
+
+    /**
+     * 统一同步逻辑：一次性抓取封面和歌词
+     */
+    suspend fun fetchNeteaseMetadata(
+        context: Context,
+        itemId: String,
+        title: String?,
+        artist: String?,
+        album: String?,
+        durationMs: Long,
+        onCoverReady: (Any) -> Unit = {},
+        onLyricsReady: (List<LrcLine>) -> Unit = {}
+    ) {
+        val cleanedTitle = title?.replace(Regex("\\s*[(\\[].*?[)\\]]"), "")?.trim() ?: ""
+        val isArtistUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
+        val isAlbumUnknown = album.isNullOrBlank() || album.contains("未知") || album.contains("Unknown")
+        
+        val query = if (!isAlbumUnknown && !isArtistUnknown) {
+            "$album $artist"
+        } else if (!isArtistUnknown) {
+            "$cleanedTitle $artist"
+        } else {
+            cleanedTitle
+        }
+        
+        if (query.isEmpty()) return
+
+        try {
+            val neteaseApi = RetrofitClient.neteaseApi
+            val searchResponse = neteaseApi.searchSong(query, limit = 15)
+            val songs = searchResponse.result?.songs ?: return
+            
+            val bestMatch = findBestMatch(songs, cleanedTitle, artist, album, durationMs) ?: return
+
+            // 1. 同步抓取封面
+            val detailResponse = neteaseApi.getSongDetail("[{\"id\":${bestMatch.id}}]")
+            val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
+            
+            if (!picUrl.isNullOrEmpty()) {
+                // 下载并缓存封面到本地文件，确保手机/平板通用
+                downloadAndCacheCover(context, itemId, picUrl, onCoverReady)
+            }
+
+            // 2. 同步抓取歌词
+            val lyricResponse = neteaseApi.getLyric(bestMatch.id)
+            val lrcText = lyricResponse.lrc?.lyric
+            if (!lrcText.isNullOrBlank()) {
+                val metadata = mutableListOf(
+                    LrcLine(-1, title ?: "未知歌曲"),
+                    LrcLine(-1, artist ?: "未知艺术家"),
+                    LrcLine(-1, "来源: 网易云音乐 (智能匹配)")
+                )
+                val mainLyrics = LrcParser.parse(lrcText)
+                val tlyricText = lyricResponse.tlyric?.lyric
+                val finalLines = if (!tlyricText.isNullOrBlank()) {
+                    metadata + mergeLyrics(mainLyrics, LrcParser.parse(tlyricText))
+                } else {
+                    metadata + mainLyrics
+                }
+
+                // 写入内存和磁盘缓存
+                lyricsCache[itemId] = finalLines
+                context.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE).edit {
+                    putString(itemId, Gson().toJson(finalLines))
+                }
+                
+                withContext(Dispatchers.Main) {
+                    onLyricsReady(finalLines)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("LyricUtils", "Failed to fetch Netease metadata: ${e.message}")
+            // 如果是带歌手搜不到，尝试降级只搜标题
+            if (!isArtistUnknown && cleanedTitle.isNotEmpty()) {
+                fetchNeteaseMetadata(context, itemId, cleanedTitle, null, null, durationMs, onCoverReady, onLyricsReady)
+            }
+        }
+    }
+
+    private suspend fun downloadAndCacheCover(context: Context, itemId: String, url: String, onCoverReady: (Any) -> Unit) {
+        val request = ImageRequest.Builder(context)
+            .data(url)
+            .allowHardware(false)
+            .build()
+        
+        val result = context.imageLoader.execute(request)
+        if (result is SuccessResult) {
+            val bitmap = (result.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap
+            if (bitmap != null) {
+                MediaItemUtils.saveCoverToFile(context, itemId, bitmap)
+                withContext(Dispatchers.Main) {
+                    onCoverReady(bitmap)
+                }
+            }
+        }
+    }
     fun cleanString(str: String): String {
         return str.lowercase()
             .replace(Regex("[^a-z0-9\\u4e00-\\u9fa5]"), "") // 仅保留数字、字母、中文

@@ -228,12 +228,8 @@ class TabletPlayerHandler(
     }
 
     private fun updateMetadata(item: MediaItem?) {
-        // 处理颜色主题，统一使用 HomeActivity 的逻辑
         val isDark = (activity as? HomeActivity)?.isDarkForce() ?: true
-        
-        // 同步通知 HomeActivity 更新全局模糊背景
         (activity as? HomeActivity)?.updateBackground(item)
-        
         vBackgroundScrim?.setBackgroundColor(if (isDark) 0x33000000 else 0x1A000000)
         
         if (item == null) {
@@ -254,12 +250,8 @@ class TabletPlayerHandler(
         tvTitle?.apply {
             text = metadata.title ?: "Unknown"
             setTextColor(textColorPrimary)
-            setShadowLayer(
-                if (isDark) 10f else 0f, 
-                0f, 4f, 
-                if (isDark) 0xCC000000.toInt() else Color.TRANSPARENT
-            )
-            isSelected = true // 开启跑马灯
+            setShadowLayer(if (isDark) 10f else 0f, 0f, 4f, if (isDark) 0xCC000000.toInt() else Color.TRANSPARENT)
+            isSelected = true
             requestFocus()
         }
         tvArtist?.apply {
@@ -267,201 +259,130 @@ class TabletPlayerHandler(
             val album = metadata.albumTitle?.toString()?.replace("\n", " ")
             text = if (album.isNullOrEmpty()) artist else "$artist - $album"
             setTextColor(if (isDark) 0xE6FFFFFF.toInt() else 0xE6000000.toInt())
-            setShadowLayer(
-                if (isDark) 8f else 0f, 
-                0f, 2f, 
-                if (isDark) 0x99000000.toInt() else Color.TRANSPARENT
-            )
+            setShadowLayer(if (isDark) 8f else 0f, 0f, 2f, if (isDark) 0x99000000.toInt() else Color.TRANSPARENT)
             isSelected = true
             requestFocus()
         }
         
         tvCurrentTime?.setTextColor(textColorSecondary)
         tvTotalTime?.setTextColor(textColorSecondary)
-        
         btnPrev?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
         btnPlayPause?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
         btnNext?.imageTintList = android.content.res.ColorStateList.valueOf(iconTint)
         btnPlayMode?.imageTintList = android.content.res.ColorStateList.valueOf(iconTintSecondary)
-        
         seekBar?.progressTintList = android.content.res.ColorStateList.valueOf(textColorPrimary)
         seekBar?.thumbTintList = android.content.res.ColorStateList.valueOf(textColorPrimary)
         
         val mediaId = item.mediaId
         val artworkUri = metadata.artworkUri
 
-        // 封面加载策略：Emby原生(内置/服务器) > 本地网络缓存 > 实时网络搜索
-        ivAlbumArt?.load(artworkUri) {
-            crossfade(600)
-            placeholder(R.drawable.disk)
-            error(R.drawable.disk)
-            listener(
-                onError = { _, _ ->
-                    // 原生封面失败，尝试读取缓存的网络封面
-                    val prefs = activity.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
-                    val cachedCover = prefs.getString(mediaId, null)
-                    if (cachedCover != null) {
-                        val cachedUri = android.net.Uri.parse(cachedCover)
-                        ivAlbumArt?.load(cachedUri) {
-                            crossfade(600)
-                            placeholder(R.drawable.disk)
-                            error(R.drawable.disk)
-                        }
-                    } else {
-                        // 既没有原生也没有缓存，搜索网络
-                        searchNeteaseCover(mediaId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
-                    }
-                }
-            )
+        // 封面加载策略
+        val coverFile = java.io.File(activity.cacheDir, "covers/${mediaId}.jpg")
+        if (coverFile.exists()) {
+            ivAlbumArt?.load(coverFile) {
+                crossfade(600)
+                placeholder(R.drawable.disk)
+                listener(onSuccess = { _, _ -> updateBlurBackground(coverFile) })
+            }
+        } else {
+            ivAlbumArt?.load(artworkUri) {
+                crossfade(600)
+                placeholder(R.drawable.disk)
+                error(R.drawable.disk)
+                listener(
+                    onSuccess = { _, _ -> updateBlurBackground(artworkUri) },
+                    onError = { _, _ -> syncNeteaseData(item) }
+                )
+            }
         }
 
         val extras = metadata.extras
         updateFavoriteIcon(extras?.getBoolean("is_favorite", false) ?: false)
         updateAudioQuality(item)
         
-        // 加载歌词逻辑
-        val cached = PlayerDialogFragment.lyricsCache[mediaId]
+        // 加载歌词
+        val cached = LyricUtils.lyricsCache[mediaId] ?: run {
+            val lyricPrefs = activity.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE)
+            val cachedJson = lyricPrefs.getString(mediaId, null)
+            if (cachedJson != null) {
+                try {
+                    val type = object : com.google.gson.reflect.TypeToken<List<LrcLine>>() {}.type
+                    val diskLines: List<LrcLine> = com.google.gson.Gson().fromJson(cachedJson, type)
+                    LyricUtils.lyricsCache[mediaId] = diskLines
+                    diskLines
+                } catch (e: Exception) { null }
+            } else null
+        }
+
         if (cached != null) {
             lyricsAdapter?.lines = cached
         } else {
-            // 检查内置标签
             val embeddedLyrics = extras?.getString("lyrics")
             if (!embeddedLyrics.isNullOrBlank()) {
                 val lines = LrcParser.parse(embeddedLyrics)
                 if (lines.isNotEmpty()) {
-                    PlayerDialogFragment.lyricsCache[mediaId] = lines
+                    LyricUtils.lyricsCache[mediaId] = lines
                     lyricsAdapter?.lines = lines
                 } else {
                     lyricsAdapter?.lines = emptyList()
-                    preloadLyrics(mediaId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
+                    syncNeteaseData(item)
                 }
             } else {
                 lyricsAdapter?.lines = emptyList()
-                preloadLyrics(mediaId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
+                syncNeteaseData(item)
             }
         }
     }
 
-    private fun searchNeteaseCover(mediaId: String, title: String?, artist: String?, album: String?) {
-        val currentDuration = try { controller.duration } catch (e: Exception) { 0L }
-        activity.lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val neteaseApi = RetrofitClient.neteaseApi
-            val cleanedTitle = title?.replace(Regex("\\s*([(\\[].*?[)\\]])"), "")?.trim() ?: ""
-            
-            val query = if (!album.isNullOrBlank() && album != "未知专辑") {
-                "$album $artist"
-            } else if (!artist.isNullOrBlank() && artist != "未知歌手") {
-                "$cleanedTitle $artist"
-            } else {
-                cleanedTitle
-            }
-            
-            if (query.isEmpty()) return@launch
-
-            try {
-                val searchResponse = neteaseApi.searchSong(query, limit = 10)
-                val songs = searchResponse.result?.songs ?: return@launch
-                
-                val song = LyricUtils.findBestMatch(songs, cleanedTitle, artist, album, currentDuration)
-                    ?: songs.firstOrNull() ?: return@launch
-
-                val detailResponse = neteaseApi.getSongDetail("[{\"id\":${song.id}}]")
-                val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
-                
-                if (!picUrl.isNullOrEmpty()) {
-                    withContext(kotlinx.coroutines.Dispatchers.Main) {
-                        if (controller.currentMediaItem?.mediaId == mediaId) {
-                            activity.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
-                                .edit().putString(mediaId, picUrl).apply()
-                            
-                            // 核心：有机结合 - 同时更新封面和背景
-                            ivAlbumArt?.load(picUrl) {
-                                crossfade(true)
-                                placeholder(R.drawable.disk)
-                                error(R.drawable.disk)
-                            }
-                            
-                            // 同步更新 Activity 的模糊背景
-                            (activity as? HomeActivity)?.findViewById<ImageView>(R.id.ivBlurBackground)?.load(picUrl) {
-                                crossfade(true)
-                                transformations(jp.wasabeef.transformers.coil.BlurTransformation(activity, 25, 3))
-                            }
-                        }
-                    }
-                }
-            } catch (e: Exception) { e.printStackTrace() }
-        }
-    }
-
-    private fun updateFavoriteIcon(isFavorite: Boolean) {
-        val isDark = (activity as? HomeActivity)?.isDarkForce() ?: false || 
-            (activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-            
-        btnMore?.setImageResource(if (isFavorite) R.drawable.ic_heart else R.drawable.ic_heart_border)
-        btnMore?.imageTintList = android.content.res.ColorStateList.valueOf(
-            if (isFavorite) Color.RED else (if (isDark) 0x66FFFFFF.toInt() else 0x66000000.toInt())
-        )
-    }
-
-    private fun toggleFavorite() {
-        val mediaItem = controller.currentMediaItem ?: return
-        val itemId = mediaItem.mediaMetadata.extras?.getString("item_id") ?: return
-        val isFavorite = mediaItem.mediaMetadata.extras?.getBoolean("is_favorite", false) ?: false
+    private fun syncNeteaseData(item: MediaItem) {
+        val mediaId = item.mediaId
+        val metadata = item.mediaMetadata
+        val durationMs = controller.duration.let { if (it > 0) it else metadata.extras?.getLong("duration_ms") ?: 0L }
         
-        val service = RetrofitClient.getEmbyApiService(activity) ?: return
-        val prefs = activity.getSharedPreferences("embysic_prefs", Context.MODE_PRIVATE)
-        val userId = prefs.getString("user_id", "") ?: ""
-        val accessToken = prefs.getString("access_token", "") ?: ""
-        val authHeader = "MediaBrowser Token=\"$accessToken\""
-
         activity.lifecycleScope.launch {
-            try {
-                val loc = IntArray(2)
-                btnMore?.getLocationInWindow(loc)
-                val centerX = loc[0] + (btnMore?.width ?: 0) / 2f
-                val centerY = loc[1] + (btnMore?.height ?: 0) / 2f
-
-                if (isFavorite) {
-                    service.unmarkFavorite(userId, itemId, authHeader)
-                    heartLayout?.shatterHeart(centerX, centerY)
-                } else {
-                    service.markFavorite(userId, itemId, authHeader)
-                    repeat(5) {
-                        handler.postDelayed({
-                            heartLayout?.addHeart(centerX, centerY)
-                        }, it * 100L)
+            LyricUtils.fetchNeteaseMetadata(
+                context = activity,
+                itemId = mediaId,
+                title = metadata.title?.toString(),
+                artist = metadata.artist?.toString(),
+                album = metadata.albumTitle?.toString(),
+                durationMs = durationMs,
+                onCoverReady = { source ->
+                    if (controller.currentMediaItem?.mediaId == mediaId) {
+                        ivAlbumArt?.load(source) {
+                            crossfade(600)
+                            placeholder(R.drawable.disk)
+                        }
+                        updateBlurBackground(source)
+                    }
+                },
+                onLyricsReady = { lines ->
+                    if (controller.currentMediaItem?.mediaId == mediaId) {
+                        lyricsAdapter?.lines = lines
                     }
                 }
-                mediaItem.mediaMetadata.extras?.putBoolean("is_favorite", !isFavorite)
-                updateFavoriteIcon(!isFavorite)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            )
         }
     }
 
-    private fun updateAudioQuality(item: MediaItem?) {
-        val isDark = (activity as? HomeActivity)?.isDarkForce() ?: false || 
-            (activity.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-            
-        val extras = item?.mediaMetadata?.extras ?: return
-        val codec = extras.getString("codec") ?: ""
+    private fun updateBlurBackground(source: Any?) {
+        if (source == null) return
+        (activity as? HomeActivity)?.findViewById<ImageView>(R.id.ivBlurBackground)?.load(source) {
+            crossfade(600)
+            transformations(BlurTransformation(activity, 25, 3))
+        }
+    }
+
+    private fun updateAudioQuality(item: MediaItem) {
+        val extras = item.mediaMetadata.extras ?: return
+        val isDark = (activity as? HomeActivity)?.isDarkForce() ?: true
+        val codec = extras.getString("codec", "未知")
         val bitrate = extras.getInt("bitrate", 0) / 1000
         val isTranscoding = extras.getBoolean("is_transcoding", false)
-
-        val qualityText = if (!isTranscoding) {
-            "⚠️ 源码播放 $codec ${bitrate}kbps"
-        } else {
-            "正在转码 $codec ${bitrate}kbps"
-        }
-        
+        val qualityText = if (!isTranscoding) "⚠️ 源码播放 $codec ${bitrate}kbps" else "正在转码 $codec ${bitrate}kbps"
         tvAudioQuality?.apply {
             text = qualityText
-            setTextColor(if (!isTranscoding) {
-                if (isDark) Color.YELLOW else 0xFFF57C00.toInt()
-            } else {
-                if (isDark) 0x99FFFFFF.toInt() else 0x99000000.toInt()
-            })
+            setTextColor(if (!isTranscoding) (if (isDark) Color.YELLOW else 0xFFF57C00.toInt()) else (if (isDark) 0x99FFFFFF.toInt() else 0x99000000.toInt()))
             visibility = View.VISIBLE
         }
     }
@@ -473,43 +394,27 @@ class TabletPlayerHandler(
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastClickTime < 500) qualityClickCount++ else qualityClickCount = 1
             lastClickTime = currentTime
-            
             if (qualityClickCount >= 5) {
                 qualityClickCount = 0
                 MediaItemUtils.isForceDirectMode = !MediaItemUtils.isForceDirectMode
-                
-                // 平板端立即重新载入当前歌曲
                 val currentPos = controller.currentPosition
                 val currentItem = controller.currentMediaItem ?: return@setOnClickListener
-                val extras = currentItem.mediaMetadata.extras ?: return@setOnClickListener
-                val itemId = extras.getString("item_id") ?: return@setOnClickListener
-                
+                val itemId = currentItem.mediaMetadata.extras?.getString("item_id") ?: return@setOnClickListener
                 val service = RetrofitClient.getEmbyApiService(activity) ?: return@setOnClickListener
-                
                 activity.lifecycleScope.launch {
                     try {
                         val prefs = activity.getSharedPreferences("embysic_prefs", Context.MODE_PRIVATE)
                         val serverUrl = prefs.getString("server_url", "") ?: ""
                         val accessToken = prefs.getString("access_token", "") ?: ""
                         val userId = prefs.getString("user_id", "") ?: ""
-                        
                         val embyItem = service.getItem(userId, itemId, "MediaBrowser Token=\"$accessToken\"")
-                        
-                        val newItem = MediaItemUtils.buildMediaItem(
-                            activity,
-                            embyItem, serverUrl, accessToken, userId,
-                            forceDirect = MediaItemUtils.isForceDirectMode
-                        )
-                        
+                        val newItem = MediaItemUtils.buildMediaItem(activity, embyItem, serverUrl, accessToken, userId, forceDirect = MediaItemUtils.isForceDirectMode)
                         controller.setMediaItem(newItem)
                         controller.seekTo(currentPos)
                         controller.prepare()
                         controller.play()
-                        
                         updateMetadata(newItem)
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                    } catch (e: Exception) { e.printStackTrace() }
                 }
             }
         }
@@ -519,12 +424,10 @@ class TabletPlayerHandler(
     private fun setupVolumeTouch() {
         var startX = 0f
         var startVolume = 0
-
         bottomTouchArea?.setOnTouchListener { v, event ->
             val audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return@setOnTouchListener false
             val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
             val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
-            
             when (event.action) {
                 android.view.MotionEvent.ACTION_DOWN -> {
                     startX = event.x
@@ -539,12 +442,9 @@ class TabletPlayerHandler(
                     true
                 }
                 android.view.MotionEvent.ACTION_MOVE -> {
-                    val width = v.width
                     val deltaX = event.x - startX
-                    val sensitivityWidth = width / 3f
-                    val volumeDelta = (deltaX / sensitivityWidth * maxVolume).toInt()
-                    val targetVolume = (startVolume + volumeDelta).coerceIn(0, maxVolume)
-                    
+                    val sensitivityWidth = v.width / 3f
+                    val targetVolume = (startVolume + (deltaX / sensitivityWidth * maxVolume).toInt()).coerceIn(0, maxVolume)
                     audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVolume, 0)
                     sbVolumeHint?.progress = targetVolume
                     volumeDotView?.setTouchPosition(event.x, event.y, true)
@@ -561,172 +461,18 @@ class TabletPlayerHandler(
         }
     }
 
-    private fun preloadLyrics(mediaId: String, title: String?, artist: String?, album: String?) {
-        val lyricPrefs = activity.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE)
-        val cachedJson = lyricPrefs.getString(mediaId, null)
-        if (cachedJson != null) {
-            try {
-                val type = object : com.google.gson.reflect.TypeToken<List<LrcLine>>() {}.type
-                val diskLines: List<LrcLine> = com.google.gson.Gson().fromJson(cachedJson, type)
-                PlayerDialogFragment.lyricsCache[mediaId] = diskLines
-                if (controller.currentMediaItem?.mediaId == mediaId) {
-                    lyricsAdapter?.lines = diskLines
-                }
-                return
-            } catch (e: Exception) { e.printStackTrace() }
-        }
-
-        activity.lifecycleScope.launch {
-            try {
-                val service = RetrofitClient.getEmbyApiService(activity) ?: return@launch
-                val prefs = activity.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
-                val accessToken = prefs.getString("access_token", "") ?: ""
-                val authHeader = "MediaBrowser Token=\"$accessToken\""
-                
-                val response = service.getLyrics(mediaId, authHeader)
-                val rawLines = response.Lines ?: response.Lyrics ?: response.LyricLines
-                @Suppress("UNCHECKED_CAST")
-                val actualLines = rawLines as? List<LyricLine>
-                
-                if (!actualLines.isNullOrEmpty()) {
-                    val metadata = mutableListOf(LrcLine(-1, title ?: "Unknown"), LrcLine(-1, artist ?: "Unknown"))
-                    val lyrics = actualLines.map { LrcLine(it.StartTicks?.div(10000) ?: it.Start?.toLong()?.div(10000) ?: 0L, it.Text ?: "") }
-                        .filter { it.text.isNotBlank() }.sortedBy { it.timeMs }
-                    val finalLines = metadata + lyrics
-                    
-                    PlayerDialogFragment.lyricsCache[mediaId] = finalLines
-                    activity.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE).edit {
-                        putString(mediaId, com.google.gson.Gson().toJson(finalLines))
-                    }
-                    if (controller.currentMediaItem?.mediaId == mediaId) {
-                        lyricsAdapter?.lines = finalLines
-                    }
-                } else {
-                    searchNeteaseLyrics(mediaId, title, artist, album)
-                }
-            } catch (e: Exception) { 
-                Log.e("TabletPlayer", "Load lyrics failed: ${e.message}")
-                searchNeteaseLyrics(mediaId, title, artist, album)
-            }
-        }
-    }
-
-    private fun searchNeteaseLyrics(mediaId: String, title: String?, artist: String?, album: String?) {
-        val cleanedTitle = title?.replace(Regex("\\s*([(\\[].*?[)\\]])"), "")?.trim() ?: ""
-        val isArtistUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
-        val isAlbumUnknown = album.isNullOrBlank() || album.contains("未知") || album.contains("Unknown")
-
-        val query = if (!isAlbumUnknown && !isArtistUnknown) {
-            "$album $artist"
-        } else if (!isArtistUnknown) {
-            "$cleanedTitle $artist"
-        } else {
-            cleanedTitle
-        }
-        
-        if (query.isEmpty()) return
-
-        activity.lifecycleScope.launch {
-            val neteaseApi = RetrofitClient.neteaseApi
-            try {
-                // 增加搜索限制到 20 条，以便从中择优
-                val searchResponse = neteaseApi.searchSong(query, limit = 20)
-                val songs = searchResponse.result?.songs ?: throw Exception("Not found")
-
-                // 智能匹配算法
-                val currentDuration = controller.duration
-                val bestMatch = LyricUtils.findBestMatch(songs, cleanedTitle, artist, album, currentDuration)
-                    ?: throw Exception("No suitable match")
-
-                // 【有机结合】既然找到了确切的歌曲匹配，同步拉取高清封面
-                launch {
-                    try {
-                        val detailResponse = neteaseApi.getSongDetail("[{\"id\":${bestMatch.id}}]")
-                        val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
-                        if (!picUrl.isNullOrEmpty()) {
-                            withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                if (controller.currentMediaItem?.mediaId == mediaId) {
-                                    // 存入封面缓存
-                                    activity.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
-                                        .edit().putString(mediaId, picUrl).apply()
-                                    
-                                    // 更新中心封面
-                                    ivAlbumArt?.load(picUrl) {
-                                        crossfade(true)
-                                        placeholder(R.drawable.disk)
-                                    }
-                                    
-                                    // 同步更新 Activity 的模糊背景
-                                    (activity as? HomeActivity)?.findViewById<ImageView>(R.id.ivBlurBackground)?.load(picUrl) {
-                                        crossfade(true)
-                                        transformations(jp.wasabeef.transformers.coil.BlurTransformation(activity, 25, 3))
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) { e.printStackTrace() }
-                }
-
-                val lrcResponse = neteaseApi.getLyric(bestMatch.id)
-                val lyricText = lrcResponse.lrc?.lyric
-                if (!lyricText.isNullOrEmpty()) {
-                    val metadata = mutableListOf(LrcLine(-1, title ?: "Unknown"), LrcLine(-1, artist ?: "Unknown"), LrcLine(-1, "来源: 网易云音乐 (智能匹配)"))
-                    val mainLyrics = LrcParser.parse(lyricText)
-                    
-                    val tlyricText = lrcResponse.tlyric?.lyric
-                    val finalLines = if (!tlyricText.isNullOrBlank()) {
-                        metadata + LyricUtils.mergeLyrics(mainLyrics, LrcParser.parse(tlyricText))
-                    } else {
-                        metadata + mainLyrics
-                    }
-
-                    PlayerDialogFragment.lyricsCache[mediaId] = finalLines
-                    activity.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE).edit {
-                        putString(mediaId, com.google.gson.Gson().toJson(finalLines))
-                    }
-                    if (controller.currentMediaItem?.mediaId == mediaId) {
-                        lyricsAdapter?.lines = finalLines
-                    }
-                }
-            } catch (e: Exception) {
-                // 如果带歌手搜不到，尝试只搜标题
-                if (!isArtistUnknown && cleanedTitle.isNotEmpty() && !query.equals(cleanedTitle)) {
-                    searchNeteaseLyrics(mediaId, cleanedTitle, null, null)
-                }
-            }
-        }
-    }
-
     private fun updateUIProgress(player: Player) {
-        val duration = player.duration
+        val duration = player.duration.let { if (it > 0) it else player.currentMediaItem?.mediaMetadata?.extras?.getLong("duration_ms") ?: 0L }
         val current = player.currentPosition
         if (duration > 0) {
             seekBar?.max = duration.toInt()
             seekBar?.progress = current.toInt()
             tvTotalTime?.text = formatTime(duration)
             tvCurrentTime?.text = formatTime(current)
-            
             val isUserScrolling = (rvLyricsRight?.getTag(R.id.bottom_container) as? Boolean) ?: false
             lyricsAdapter?.updateActiveLine(current)?.let { index ->
                 if (index != -1 && !isUserScrolling) {
                     (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 4)
-                }
-            }
-        } else {
-            // Fallback for some streams where duration isn't immediately available
-            val extras = player.currentMediaItem?.mediaMetadata?.extras
-            val injectDuration = extras?.getLong("duration_ms") ?: 0L
-            if (injectDuration > 0) {
-                seekBar?.max = injectDuration.toInt()
-                seekBar?.progress = current.toInt()
-                tvTotalTime?.text = formatTime(injectDuration)
-                tvCurrentTime?.text = formatTime(current)
-                
-                val isUserScrolling = (rvLyricsRight?.getTag(R.id.bottom_container) as? Boolean) ?: false
-                lyricsAdapter?.updateActiveLine(current)?.let { index ->
-                    if (index != -1 && !isUserScrolling) {
-                        (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 3)
-                    }
                 }
             }
         }
@@ -739,50 +485,21 @@ class TabletPlayerHandler(
     private fun togglePlayMode() {
         val isShuffle = controller.shuffleModeEnabled
         val repeatMode = controller.repeatMode
-        
-        // 目标模式确定
         val nextShuffle: Boolean
         val nextRepeat: Int
         val hint: String
-
         when {
-            isShuffle -> {
-                // 随机 -> 单曲
-                nextShuffle = false
-                nextRepeat = Player.REPEAT_MODE_ONE
-                hint = activity.getString(R.string.repeat_one)
-            }
-            repeatMode == Player.REPEAT_MODE_ONE -> {
-                // 单曲 -> 列表
-                nextShuffle = false
-                nextRepeat = Player.REPEAT_MODE_ALL
-                hint = activity.getString(R.string.repeat_all)
-            }
-            else -> {
-                // 列表 -> 随机
-                nextShuffle = true
-                nextRepeat = Player.REPEAT_MODE_ALL
-                hint = activity.getString(R.string.shuffle)
-            }
+            isShuffle -> { nextShuffle = false; nextRepeat = Player.REPEAT_MODE_ONE; hint = activity.getString(R.string.repeat_one) }
+            repeatMode == Player.REPEAT_MODE_ONE -> { nextShuffle = false; nextRepeat = Player.REPEAT_MODE_ALL; hint = activity.getString(R.string.repeat_all) }
+            else -> { nextShuffle = true; nextRepeat = Player.REPEAT_MODE_ALL; hint = activity.getString(R.string.shuffle) }
         }
-
-        // 1. 立即更新控制器状态
         controller.shuffleModeEnabled = nextShuffle
         controller.repeatMode = nextRepeat
-
-        // 2. 根据模式刷新播放列表
-        if (isShuffle != nextShuffle) {
-            (activity as? HomeActivity)?.updatePlaylistByMode(nextShuffle)
-        }
-
-        // 3. 立即更新 UI，不等待回调，解决状态同步延迟导致的图标错误
+        if (isShuffle != nextShuffle) (activity as? HomeActivity)?.updatePlaylistByMode(nextShuffle)
         updatePlayModeUI(nextShuffle, nextRepeat, hint)
     }
 
-    private fun updatePlayModeIcon() {
-        // 用于外部（如初始化或监听到变化）调用的通用刷新
-        updatePlayModeUI(controller.shuffleModeEnabled, controller.repeatMode, null)
-    }
+    private fun updatePlayModeIcon() { updatePlayModeUI(controller.shuffleModeEnabled, controller.repeatMode, null) }
 
     private fun updatePlayModeUI(shuffleEnabled: Boolean, repeatMode: Int, hint: String?) {
         val resId = when {
@@ -791,7 +508,6 @@ class TabletPlayerHandler(
             else -> R.drawable.ic_repeat_vector
         }
         btnPlayMode?.setImageResource(resId)
-        
         val text = hint ?: when {
             shuffleEnabled -> activity.getString(R.string.shuffle)
             repeatMode == Player.REPEAT_MODE_ONE -> activity.getString(R.string.repeat_one)
@@ -809,25 +525,62 @@ class TabletPlayerHandler(
     }
 
     private val hidePlayModeHintRunnable = Runnable {
-        tvPlayModeHint?.animate()?.alpha(0f)?.setDuration(500)?.withEndAction {
-            tvPlayModeHint?.isVisible = false
-        }?.start()
+        tvPlayModeHint?.animate()?.alpha(0f)?.setDuration(500)?.withEndAction { tvPlayModeHint?.isVisible = false }?.start()
     }
 
     private val hideVolumeHintRunnable = Runnable {
-        llVolumeHint?.animate()?.alpha(0f)?.setDuration(500)?.withEndAction {
-            llVolumeHint?.visibility = View.INVISIBLE
-        }?.start()
+        llVolumeHint?.animate()?.alpha(0f)?.setDuration(500)?.withEndAction { llVolumeHint?.visibility = View.INVISIBLE }?.start()
     }
 
-    fun onConfigurationChanged() {
-        updateMetadata(controller.currentMediaItem)
-    }
+    fun onConfigurationChanged() { updateMetadata(controller.currentMediaItem) }
 
     private fun formatTime(ms: Long): String {
         val totalSeconds = ms / 1000
         val minutes = totalSeconds / 60
         val seconds = totalSeconds % 60
         return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
+    }
+
+    private fun updateFavoriteIcon(isFavorite: Boolean) {
+        btnMore?.setImageResource(if (isFavorite) R.drawable.ic_heart else R.drawable.ic_heart_border)
+        btnMore?.imageTintList = android.content.res.ColorStateList.valueOf(if (isFavorite) Color.RED else (if ((activity as? HomeActivity)?.isDarkForce() == true) Color.WHITE else Color.BLACK))
+    }
+
+    private fun toggleFavorite() {
+        val currentItem = controller.currentMediaItem ?: return
+        val itemId = currentItem.mediaId
+        val extras = currentItem.mediaMetadata.extras ?: return
+        val isFavorite = extras.getBoolean("is_favorite", false)
+        val service = RetrofitClient.getEmbyApiService(activity) ?: return
+        
+        activity.lifecycleScope.launch {
+            try {
+                val prefs = activity.getSharedPreferences("embysic_prefs", Context.MODE_PRIVATE)
+                val userId = prefs.getString("user_id", "") ?: ""
+                val accessToken = prefs.getString("access_token", "") ?: ""
+                val authHeader = "MediaBrowser Token=\"$accessToken\""
+                
+                // Calculate position for animation before potential UI changes
+                val loc = IntArray(2)
+                btnMore?.getLocationInWindow(loc)
+                val centerX = loc[0] + (btnMore?.width ?: 0) / 2f
+                val centerY = loc[1] + (btnMore?.height ?: 0) / 2f
+
+                if (isFavorite) {
+                    service.unmarkFavorite(userId, itemId, authHeader)
+                    heartLayout?.shatterHeart(centerX, centerY)
+                } else {
+                    service.markFavorite(userId, itemId, authHeader)
+                    repeat(3) {
+                        handler.postDelayed({
+                            heartLayout?.addHeart(centerX, centerY)
+                        }, it * 100L)
+                    }
+                }
+                
+                extras.putBoolean("is_favorite", !isFavorite)
+                updateFavoriteIcon(!isFavorite)
+            } catch (e: Exception) { e.printStackTrace() }
+        }
     }
 }

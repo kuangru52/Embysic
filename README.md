@@ -13,6 +13,7 @@ Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户
 
 ### 项目简介
 ![示例图片](https://images2.imgbox.com/5b/7b/Z6TOtilC_o.jpg)
+![示例图片](https://images2.imgbox.com/1b/07/c3vhaSln_o.png)
 
 
 ### 隐藏功能与交互指南

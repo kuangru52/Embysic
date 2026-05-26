@@ -12,7 +12,8 @@ Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户
 - **更新亮点**：封面与歌词智能联动，沉浸式高斯模糊背景同步，性能大幅优化。
 
 ### 项目简介
-[URL=https://imgbox.com/Z6TOtilC][IMG]https://images2.imgbox.com/5b/7b/Z6TOtilC_o.jpg[/IMG][/URL]
+![示例图片](https://images2.imgbox.com/5b/7b/Z6TOtilC_o.jpg)
+
 Embysic 不仅仅是一个播放器，它追求原生般的流畅感与精致的视觉细节。项目采用了 Material Design 3 设计规范，并针对音乐播放场景深度优化了手势操作与界面过渡动画。
 
 ### 隐藏功能与交互指南

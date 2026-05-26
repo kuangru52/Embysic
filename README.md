@@ -33,7 +33,7 @@ Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户
 - **功能**：立即关闭播放器界面并自动跳转定位到该艺术家的所有专辑列表，方便您查看艺术家的其他专辑。
 
 #### 4. 音质转换
-- **操作方式**：连续点击55次正在转码 AAC 256kbps
+- **操作方式**：连续点击5次正在转码 AAC 256kbps
 - **功能**：进入源码播放模式，但每次冷启动默认为转码播放，以节省用户流量。
 
 #### 5. 音量调节
@@ -80,7 +80,7 @@ To maintain a clean interface, we have designed several intuitive "hidden" inter
 - **Function**: Instantly closes the player and jumps to the list of all albums by that artist.
 
 #### 4. Audio Quality Toggle
-- **Action**: Click the "Transcoding AAC 256kbps" text 55 times consecutively.
+- **Action**: Click the "Transcoding AAC 256kbps" text 5 times consecutively.
 - **Function**: Switch to direct source playback mode. Note: It defaults back to transcoding on every cold start to save data.
 
 #### 5. Volume Control

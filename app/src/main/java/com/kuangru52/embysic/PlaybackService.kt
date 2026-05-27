@@ -1,6 +1,5 @@
 package com.kuangru52.embysic
 
-import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
@@ -12,6 +11,7 @@ import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.*
+import androidx.media3.session.DefaultMediaNotificationProvider
 import coil.ImageLoader
 import coil.request.ImageRequest
 import com.google.common.util.concurrent.ListenableFuture
@@ -34,8 +34,7 @@ class PlaybackService : MediaSessionService() {
     private val imageLoader by lazy { ImageLoader(this) }
     private var currentArtworkBitmap: Bitmap? = null
     
-    // Discogs Token 预留
-    private val DISCOGS_TOKEN = "" 
+    private val discogsToken = "" 
 
     private var lastReportedItemId: String? = null
     private var currentItemExtras: Bundle? = null
@@ -75,8 +74,8 @@ class PlaybackService : MediaSessionService() {
 
         exoPlayer.addListener(object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                // 如果是因为我们更新元数据导致的替换，则跳过，避免无限循环
-                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) return
+                val newId = mediaItem?.mediaId
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && newId == lastReportedItemId) return
 
                 if (lastReportedItemId != null) {
                     reportStop(lastReportedItemId!!, currentItemExtras, lastKnownPositionMs, false)
@@ -115,6 +114,10 @@ class PlaybackService : MediaSessionService() {
             }
         })
 
+        val notificationProvider = DefaultMediaNotificationProvider.Builder(this).build()
+        notificationProvider.setSmallIcon(R.drawable.logo)
+        setMediaNotificationProvider(notificationProvider)
+
         mediaSession = MediaSession.Builder(this, wrappedPlayer)
             .setCallback(CustomCallback())
             .setSessionActivity(
@@ -137,26 +140,23 @@ class PlaybackService : MediaSessionService() {
         val baseId = getBaseMediaId(item.mediaId)
         val cachedPath = neteasePrefs.getString(baseId, null)
         
-        // 1. 本地缓存
         if (cachedPath != null && File(cachedPath).exists()) {
             loadBitmap(Uri.fromFile(File(cachedPath)), baseId)
             return
         }
 
-        // 2. Emby 封面
         val embyUri = item.mediaMetadata.artworkUri
         val hasPrimary = item.mediaMetadata.extras?.getBoolean("has_primary_image") ?: false
         if (hasPrimary && embyUri != null) {
             loadBitmap(embyUri, baseId)
+            return
         }
 
-        // 3. 在线搜索
         serviceScope.launch(Dispatchers.IO) {
             val title = item.mediaMetadata.title?.toString() ?: return@launch
             val artist = item.mediaMetadata.artist?.toString() ?: ""
             val album = item.mediaMetadata.albumTitle?.toString() ?: ""
 
-            // 网易云
             try {
                 val query = if (album.isNotEmpty()) "$title $album" else "$title $artist"
                 val res = neteaseApi.searchSong(query)
@@ -168,19 +168,18 @@ class PlaybackService : MediaSessionService() {
                     downloadAndCache(url, baseId)
                     return@launch
                 }
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
 
-            // Discogs
             if (album.isNotEmpty()) {
                 try {
-                    val auth = if (DISCOGS_TOKEN.isNotEmpty()) "Token $DISCOGS_TOKEN" else ""
+                    val auth = if (discogsToken.isNotEmpty()) "Token $discogsToken" else ""
                     val discogsRes = discogsApi.searchRelease(album, artist, auth = auth)
                     val match = discogsRes.results?.firstOrNull()
                     val picUrl = match?.cover_image ?: match?.thumb
                     if (picUrl != null) {
                         downloadAndCache(picUrl, baseId)
                     }
-                } catch (e: Exception) {}
+                } catch (_: Exception) {}
             }
         }
     }
@@ -217,12 +216,12 @@ class PlaybackService : MediaSessionService() {
         val currentItem = exoPlayer.currentMediaItem ?: return
         if (getBaseMediaId(currentItem.mediaId) != baseId) return
         
-        // 增加 LargeIcon (专辑封面)
         val metadataBuilder = currentItem.mediaMetadata.buildUpon()
             .setArtworkUri(artworkUri)
         
         currentArtworkBitmap?.let {
-            metadataBuilder.setArtworkData(MediaItemUtils.bitmapToByteArray(it), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+            val byteArray = MediaItemUtils.bitmapToByteArray(it)
+            metadataBuilder.setArtworkData(byteArray, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
         }
 
         val newMetadata = metadataBuilder.build()
@@ -231,14 +230,7 @@ class PlaybackService : MediaSessionService() {
             .build()
 
         val currentIndex = exoPlayer.currentMediaItemIndex
-        val currentPosition = exoPlayer.currentPosition
-        val playWhenReady = exoPlayer.playWhenReady
-
         exoPlayer.replaceMediaItem(currentIndex, newItem)
-        exoPlayer.seekTo(currentIndex, currentPosition)
-        exoPlayer.playWhenReady = playWhenReady
-        
-        // 强制刷新会话状态，确保通知栏更新
         mediaSession?.setCustomLayout(emptyList())
     }
 
@@ -271,18 +263,11 @@ class PlaybackService : MediaSessionService() {
             try {
                 embyApi?.reportPlaybackStart(
                     auth,
-                    PlaybackReportInfo(
-                        ItemId = itemId,
-                        UserId = userId,
-                        PlaySessionId = playSessionId,
-                        MediaSourceId = mediaSourceId
-                    )
+                    PlaybackReportInfo(ItemId = itemId, UserId = userId, PlaySessionId = playSessionId, MediaSourceId = mediaSourceId)
                 )
                 isStartReported = true
                 currentReportingItemId = itemId
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (_: Exception) { }
         }
     }
 
@@ -290,28 +275,20 @@ class PlaybackService : MediaSessionService() {
         val itemId = getBaseMediaId(mediaId)
         val playSessionId = extras?.getString("play_session_id")
         val mediaSourceId = extras?.getString("media_source_id") ?: itemId
-        
         val auth = getAuthHeader() ?: return
         val userId = getUserId() ?: return
         
         serviceScope.launch {
             try {
-                if (isEnded) {
-                    embyApi?.markPlayed(userId, itemId, auth)
-                }
-                embyApi?.reportPlaybackStopped(
+                if (isEnded) embyApi?.markPlayed(userId, itemId, auth)
+                embyApi?.reportPlaybackStop(
                     auth,
                     PlaybackReportInfo(
-                        ItemId = itemId,
-                        UserId = userId,
-                        PlaySessionId = playSessionId,
-                        MediaSourceId = mediaSourceId,
-                        PositionTicks = positionMs * 10000
+                        ItemId = itemId, UserId = userId, PlaySessionId = playSessionId,
+                        MediaSourceId = mediaSourceId, PositionTicks = positionMs * 10000
                     )
                 )
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (_: Exception) {}
         }
     }
 
@@ -321,11 +298,10 @@ class PlaybackService : MediaSessionService() {
                 if (exoPlayer.isPlaying) {
                     val item = exoPlayer.currentMediaItem
                     val extras = item?.mediaMetadata?.extras
-                    if (item != null && extras != null) {
+                    if (item != null) {
                         val itemId = getBaseMediaId(item.mediaId)
-                        val playSessionId = extras.getString("play_session_id")
-                        val mediaSourceId = extras.getString("media_source_id") ?: itemId
-                        
+                        val playSessionId = extras?.getString("play_session_id")
+                        val mediaSourceId = extras?.getString("media_source_id") ?: itemId
                         val auth = getAuthHeader()
                         val userId = getUserId()
                         
@@ -334,18 +310,13 @@ class PlaybackService : MediaSessionService() {
                                 embyApi?.reportPlaybackProgress(
                                     auth,
                                     PlaybackProgressInfo(
-                                        ItemId = itemId,
-                                        UserId = userId,
-                                        PlaySessionId = playSessionId,
-                                        MediaSourceId = mediaSourceId,
-                                        PositionTicks = exoPlayer.currentPosition * 10000,
+                                        ItemId = itemId, UserId = userId, PlaySessionId = playSessionId,
+                                        MediaSourceId = mediaSourceId, PositionTicks = exoPlayer.currentPosition * 10000,
                                         IsPaused = !exoPlayer.playWhenReady
                                     )
                                 )
                                 lastKnownPositionMs = exoPlayer.currentPosition
-                            } catch (e: Exception) {
-                                e.printStackTrace()
-                            }
+                            } catch (_: Exception) {}
                         }
                     }
                 }
@@ -354,17 +325,14 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    private inner class CustomCallback : MediaSession.Callback {
+    private class CustomCallback : MediaSession.Callback {
         override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
             val playerCommands = session.player.availableCommands.buildUpon()
                 .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
                 .add(Player.COMMAND_SEEK_BACK)
                 .add(Player.COMMAND_SEEK_FORWARD)
                 .build()
-            return MediaSession.ConnectionResult.accept(
-                SessionCommands.EMPTY,
-                playerCommands
-            )
+            return MediaSession.ConnectionResult.accept(SessionCommands.EMPTY, playerCommands)
         }
 
         override fun onAddMediaItems(mediaSession: MediaSession, controller: MediaSession.ControllerInfo, mediaItems: List<MediaItem>): ListenableFuture<List<MediaItem>> {
@@ -377,6 +345,9 @@ class PlaybackService : MediaSessionService() {
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? = mediaSession
 
     override fun onDestroy() {
+        if (lastReportedItemId != null) {
+            reportStop(lastReportedItemId!!, currentItemExtras, exoPlayer.currentPosition, false)
+        }
         serviceScope.cancel()
         mediaSession?.run {
             player.release()

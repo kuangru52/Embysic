@@ -20,15 +20,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import android.view.animation.Animation
-import android.view.animation.AnimationUtils
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 @UnstableApi
 class LibraryFragment : Fragment() {
@@ -442,7 +439,7 @@ class LibraryFragment : Fragment() {
                 }
                 
                 adapter.submitList(finalItems, context)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // 静默处理所有加载失败，避免切换过快产生的弹窗
             } finally {
                 progressBar.visibility = View.GONE

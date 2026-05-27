@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
  * 容器逻辑 - Kyant 风格液态玻璃底座
  */
 fun Modifier.liquidGlassDock(
-    isDark: Boolean, 
+    @Suppress("UNUSED_PARAMETER") isDark: Boolean, 
     cornerRadius: Dp = 30.dp,
     refractionAmount: Float = -60f,
     refractionHeight: Float = 20f
@@ -146,8 +146,8 @@ fun Modifier.glassNavItem(isSelected: Boolean, onClick: () -> Unit): Modifier = 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 object LiquidGlassFactory {
     fun createLiquidRenderEffect(
-        width: Float,
-        height: Float,
+        @Suppress("UNUSED_PARAMETER") width: Float,
+        @Suppress("UNUSED_PARAMETER") height: Float,
         rect: RectF,
         radius: Float,
         refractionAmount: Float,

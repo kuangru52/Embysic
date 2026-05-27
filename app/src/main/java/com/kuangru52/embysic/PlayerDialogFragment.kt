@@ -1,41 +1,36 @@
 package com.kuangru52.embysic
 
-import android.animation.ObjectAnimator
-import android.animation.PropertyValuesHolder
 import android.annotation.SuppressLint
-import android.view.animation.AccelerateDecelerateInterpolator
 import android.app.Dialog
 import android.content.DialogInterface
 import android.content.res.Configuration
 import android.graphics.Color
-import android.net.Uri
+import android.graphics.Outline
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
-import android.util.TypedValue
-import android.graphics.Outline
-import android.view.ViewOutlineProvider
-import android.view.RoundedCorner
 import android.view.LayoutInflater
 import android.view.MotionEvent
+import android.view.RoundedCorner
 import android.view.View
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.view.WindowManager
-import androidx.annotation.AttrRes
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.isVisible
-import androidx.core.content.edit
-import androidx.core.net.toUri
-import androidx.core.graphics.toColorInt
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.SeekBar
 import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.edit
+import androidx.core.graphics.toColorInt
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -43,27 +38,19 @@ import coil.ImageLoader
 import coil.load
 import coil.request.ImageRequest
 import coil.request.SuccessResult
-import jp.wasabeef.transformers.coil.BlurTransformation
-import androidx.appcompat.app.AppCompatActivity
-import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import jp.wasabeef.transformers.coil.BlurTransformation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 import java.util.Locale
 
 @UnstableApi
 class PlayerDialogFragment : BottomSheetDialogFragment() {
-
-    private val neteaseApi = RetrofitClient.neteaseApi
 
     private lateinit var tvPlayModeHint: TextView
     private lateinit var ivCover: ImageView
@@ -218,8 +205,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                 
                 // 核心：强制沉浸式
                 WindowCompat.setDecorFitsSystemWindows(window, false)
-                window.statusBarColor = Color.TRANSPARENT
-                window.navigationBarColor = Color.TRANSPARENT
                 
                 // 使用 NO_LIMITS 确保背景图覆盖状态栏
                 window.setFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS, WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
@@ -249,10 +234,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
             
             // 增强型状态栏高度获取
-            val statusBarHeight = if (bars.top > 0) bars.top else {
-                val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
-                if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else (24 * resources.displayMetrics.density).toInt()
-            }
+            val statusBarHeight = bars.top
 
             // 核心修复：使用 statusBarSpacer 物理占位，确保歌词等内容不进入状态栏区域
             // 同时 mainContent 的 paddingTop 设为 0，让背景可以延伸到状态栏（配合 DecorFitsSystemWindows(false)）
@@ -605,6 +587,16 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // 关键修复：如果是由于列表元数据更新（如服务抓取到封面）导致的 Transition，
+            // 且歌曲 ID 没变，则跳过重置逻辑，防止 Logo 闪烁。
+            val newId = getBaseMediaId(mediaItem?.mediaId)
+            val currentId = getBaseMediaId(player?.currentMediaItem?.mediaId)
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && newId == currentId) {
+                // 如果是元数据更新，我们只更新那些可能变化的东西（如收藏状态），但不重置封面
+                mediaItem?.mediaMetadata?.let { updateFavoriteIcon(it.extras?.getBoolean("is_favorite") ?: false) }
+                return
+            }
+
             isUserScrollingLyrics = false
             handler.removeCallbacks(resumeAutoScrollRunnable)
             updateMetadata(mediaItem)
@@ -692,30 +684,47 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                 tvAudioQuality.visibility = View.GONE
             }
 
-            // 统一同步入口：歌词 + 封面
-            syncNeteaseData(itemId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString())
+            // 封面加载策略优化：
+            // 1. 优先使用 MediaItem 自带的 artworkUri (Emby 封面，与列表一致)
+            // 2. 其次使用本地缓存封面 (covers/${itemId}.jpg)
+            // 3. 最后才考虑从网络或 Tag 中提取
+            val artworkUri = metadata.artworkUri
+            val safeContext = context ?: return@let
+            val coverFile = java.io.File(safeContext.cacheDir, "covers/${itemId}.jpg")
 
-            val context = context ?: return
-            
-            // 封面加载策略：
-            // 1. 优先尝试本地缓存的文件封面（Tag 解析出或同步下载的）
-            // 2. 如果没有，则在 syncNeteaseData 中处理，这里只管从物理文件加载
-            val coverFile = java.io.File(context.cacheDir, "covers/${itemId}.jpg")
-            
-            if (coverFile.exists()) {
-                ivCover.load(coverFile) {
-                    crossfade(true)
-                    placeholder(R.drawable.logo)
-                    listener(onSuccess = { _, _ -> updateBlurBackground(coverFile) })
+            when {
+                artworkUri != null -> {
+                    ivCover.load(artworkUri) {
+                        crossfade(true)
+                        // 如果当前已经有图片了，加载新图片时不要显示占位图，防止闪烁
+                        if (ivCover.drawable == null) {
+                            placeholder(R.drawable.logo)
+                        }
+                        error(R.drawable.logo)
+                        listener(onSuccess = { _, _ -> updateBlurBackground(artworkUri) })
+                    }
                 }
-            } else {
-                // 尝试提取内置 Tag
-                loadCoverFromTags(itemId)
+                coverFile.exists() -> {
+                    ivCover.load(coverFile) {
+                        crossfade(true)
+                        if (ivCover.drawable == null) {
+                            placeholder(R.drawable.logo)
+                        }
+                        listener(onSuccess = { _, _ -> updateBlurBackground(coverFile) })
+                    }
+                }
+                else -> {
+                    // 只有完全没封面时，才尝试提取 Tag
+                    loadCoverFromTags(itemId)
+                }
             }
+
+            // 同步入口：仅强制同步歌词，如果已有封面则跳过网络封面下载
+            syncNeteaseData(itemId, metadata.title?.toString(), metadata.artist?.toString(), metadata.albumTitle?.toString(), skipCover = artworkUri != null)
         }
     }
 
-    private fun syncNeteaseData(itemId: String, title: String?, artist: String?, album: String?) {
+    private fun syncNeteaseData(itemId: String, title: String?, artist: String?, album: String?, skipCover: Boolean = false) {
         val p = player ?: return
         val durationMs = if (p.duration > 0) p.duration else (p.currentMediaItem?.mediaMetadata?.extras?.getLong("duration_ms") ?: 0L)
         
@@ -727,11 +736,15 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                 artist = artist,
                 album = album,
                 durationMs = durationMs,
+                skipCover = skipCover,
                 onCoverReady = { data ->
-                    if (getBaseMediaId(player?.currentMediaItem?.mediaId) == itemId) {
+                    if (!skipCover && getBaseMediaId(player?.currentMediaItem?.mediaId) == itemId) {
                         ivCover.load(data) {
                             crossfade(true)
-                            placeholder(R.drawable.logo)
+                            // 关键：如果已经有图了（比如 Tag 提取的），加载网络图时不要闪 Logo
+                            if (ivCover.drawable == null) {
+                                placeholder(R.drawable.logo)
+                            }
                             listener(onSuccess = { _, _ -> updateBlurBackground(data) })
                         }
                     }
@@ -766,6 +779,10 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                             if (getBaseMediaId(player?.currentMediaItem?.mediaId) == itemId) {
                                 ivCover.load(bitmap) {
                                     crossfade(true)
+                                    // 只有当前没图时才显示占位符
+                                    if (ivCover.drawable == null) {
+                                        placeholder(R.drawable.logo)
+                                    }
                                     listener(onSuccess = { _, _ -> updateBlurBackground(bitmap) })
                                 }
                             }
@@ -779,19 +796,24 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                         if (artworkUri != null) {
                             ivCover.load(artworkUri) {
                                 crossfade(true)
-                                placeholder(R.drawable.logo)
+                                if (ivCover.drawable == null) {
+                                    placeholder(R.drawable.logo)
+                                }
                                 error(R.drawable.logo)
                                 listener(onSuccess = { _, _ -> updateBlurBackground(artworkUri) })
                             }
                         } else {
-                            ivCover.setImageResource(R.drawable.logo)
+                            // 只有确认什么都没有时，才设为 logo
+                            if (ivCover.drawable == null) {
+                                ivCover.setImageResource(R.drawable.logo)
+                            }
                         }
                     }
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 withContext(Dispatchers.Main) { ivCover.setImageResource(R.drawable.logo) }
             } finally {
-                try { retriever.release() } catch (e: Exception) {}
+                try { retriever.release() } catch (_: Exception) {}
             }
         }
     }
@@ -864,7 +886,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                 }
                 mediaItem.mediaMetadata.extras?.putBoolean("is_favorite", !isFavorite)
                 updateFavoriteIcon(!isFavorite)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // 静默失败
             }
         }
@@ -1001,14 +1023,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                     }
                 }
             } catch (_: Exception) { syncNeteaseData(itemId, title, artist, album) }
-        }
-    }
-
-    private fun showNoLyrics(itemId: String, title: String?, artist: String?) {
-        val finalLines = listOf(LrcLine(-1, title ?: getString(R.string.unknown_song)), LrcLine(-1, artist ?: getString(R.string.unknown_artist)), LrcLine(0, getString(R.string.no_lyrics)))
-        LyricUtils.lyricsCache[itemId] = finalLines
-        if (rvLyrics.isVisible && getBaseMediaId(player?.currentMediaItem?.mediaId) == itemId) {
-            lyricsAdapter.lines = finalLines
         }
     }
 

@@ -11,7 +11,6 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
-import android.util.Log
 import android.view.View
 import android.view.WindowManager
 import android.widget.Toast
@@ -65,6 +64,7 @@ class DonationActivity : ComponentActivity() {
         window.apply {
             clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
             addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            @Suppress("DEPRECATION")
             decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             statusBarColor = AndroidColor.TRANSPARENT
         }
@@ -293,11 +293,10 @@ class DonationActivity : ComponentActivity() {
                     }
                 } ?: throw Exception("Failed to create MediaStore entry")
 
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 withContext(Dispatchers.Main) {
-                    Toast.makeText(this@DonationActivity, "保存失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@DonationActivity, "保存失败", Toast.LENGTH_SHORT).show()
                 }
-                Log.e("WeChatDonate", "Error saving image", e)
             }
         }
     }

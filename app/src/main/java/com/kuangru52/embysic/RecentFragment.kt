@@ -280,8 +280,8 @@ class RecentFragment : Fragment() {
             try {
                 val response = service.getRecentlyPlayedItems(userId, auth = authHeader)
                 adapter.submitList(response.Items, context)
-            } catch (e: Exception) {
-                // 静默处理加载失败
+            } catch (_: Exception) {
+                // Silent handle
             } finally {
                 progressBar.visibility = View.GONE
             }

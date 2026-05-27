@@ -15,7 +15,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun SparkingProgressBar(
     progress: Float,
-    isPlaying: Boolean,
+    @Suppress("UNUSED_PARAMETER") isPlaying: Boolean,
     accentColor: Color,
     onProgressChange: (Float) -> Unit = {},
     onScrubbing: (Boolean) -> Unit = {},

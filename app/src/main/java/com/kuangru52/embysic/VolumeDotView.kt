@@ -8,6 +8,10 @@ import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.View
 import android.view.animation.OvershootInterpolator
+import kotlin.math.abs
+import kotlin.math.cos
+import kotlin.math.pow
+import kotlin.math.sin
 import kotlin.math.sqrt
 
 class VolumeDotView @JvmOverloads constructor(
@@ -78,8 +82,8 @@ class VolumeDotView @JvmOverloads constructor(
 
         for (row in -2..2) {
             for (col in -halfCol..halfCol) {
-                val absRow = Math.abs(row)
-                val absCol = Math.abs(col)
+                val absRow = abs(row)
+                val absCol = abs(col)
                 
                 if (absRow == 2 && absCol > halfCol - 2) continue
                 if (absRow == 1 && absCol > halfCol - 1) continue
@@ -107,10 +111,10 @@ class VolumeDotView @JvmOverloads constructor(
                     }
 
                     // 2. 动态波浪 & 高亮
-                    alphaFactor = Math.pow(0.72, distInUnits.toDouble()).toFloat().coerceIn(0.12f, 1.0f)
+                    alphaFactor = 0.72.pow(distInUnits.toDouble()).toFloat().coerceIn(0.12f, 1.0f)
                     
                     // 增加呼吸感的高亮波纹
-                    val wave = Math.sin(time / 200.0 - distInUnits * 0.8).toFloat() * 0.1f
+                    val wave = sin(time / 200.0 - distInUnits * 0.8).toFloat() * 0.1f
                     focusScale = (1.3f - (distInUnits / 6f) + wave).coerceIn(1.0f, 1.5f)
                     
                     val gridDistCenter = sqrt((row * row + col * col).toDouble()).toFloat()
@@ -122,8 +126,8 @@ class VolumeDotView @JvmOverloads constructor(
 
                 // 3. 基础漂浮动效 (更加丝滑的低频随机感)
                 val angle = (time / 1500.0) + (col * 0.5) + (row * 0.8)
-                val floatX = Math.sin(angle).toFloat() * 0.8f * density
-                val floatY = Math.cos(angle * 0.8).toFloat() * 0.8f * density
+                val floatX = sin(angle).toFloat() * 0.8f * density
+                val floatY = cos(angle * 0.8).toFloat() * 0.8f * density
                 
                 dotPaint.alpha = (255 * (alphaFactor + (if(isPressed) 0.05f else 0f)) * currentDotProgress).toInt().coerceIn(0, 255)
                 val dynamicRadius = r * focusScale * (0.85f + 0.35f * currentDotProgress)

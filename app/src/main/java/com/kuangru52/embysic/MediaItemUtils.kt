@@ -31,7 +31,7 @@ object MediaItemUtils {
         // 1. 优先从系统设置获取用户定义的设备名称 (通常就是商品名)
         try {
             name = Settings.Global.getString(context.contentResolver, "device_name") ?: ""
-        } catch (e: Exception) {}
+        } catch (_: Exception) {}
 
         if (name.isBlank()) {
             // 2. 尝试通过反射获取 OEM 特有的市场名称属性
@@ -51,7 +51,7 @@ object MediaItemUtils {
                         break
                     }
                 }
-            } catch (e: Exception) {}
+            } catch (_: Exception) {}
         }
 
         // 3. 最后兜底使用 Build.MODEL

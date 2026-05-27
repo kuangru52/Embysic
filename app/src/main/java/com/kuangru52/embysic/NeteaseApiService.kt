@@ -1,3 +1,4 @@
+@file:Suppress("unused", "PropertyName")
 package com.kuangru52.embysic
 
 import retrofit2.http.GET

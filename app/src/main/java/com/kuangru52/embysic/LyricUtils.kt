@@ -3,9 +3,7 @@ package com.kuangru52.embysic
 import kotlin.math.abs
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.util.Log
-import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.edit
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -14,7 +12,6 @@ import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.math.abs
 
 /**
  * 核心匹配工具类
@@ -34,6 +31,7 @@ object LyricUtils {
         artist: String?,
         album: String?,
         durationMs: Long,
+        skipCover: Boolean = false,
         onCoverReady: (Any) -> Unit = {},
         onLyricsReady: (List<LrcLine>) -> Unit = {}
     ) {
@@ -41,12 +39,12 @@ object LyricUtils {
         val isArtistUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
         val isAlbumUnknown = album.isNullOrBlank() || album.contains("未知") || album.contains("Unknown")
         
-        val query = if (!isAlbumUnknown && !isArtistUnknown) {
-            "$album $artist"
-        } else if (!isArtistUnknown) {
-            "$cleanedTitle $artist"
-        } else {
-            cleanedTitle
+        // 关键修复：搜索词必须包含歌曲名，否则在搜索专辑时，同名主打歌会排在最前面，导致匹配错误
+        val query = when {
+            !isArtistUnknown && !isAlbumUnknown -> "$cleanedTitle $artist $album"
+            !isArtistUnknown -> "$cleanedTitle $artist"
+            !isAlbumUnknown -> "$cleanedTitle $album"
+            else -> cleanedTitle
         }
         
         if (query.isEmpty()) return
@@ -62,7 +60,7 @@ object LyricUtils {
             val detailResponse = neteaseApi.getSongDetail("[{\"id\":${bestMatch.id}}]")
             val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
             
-            if (!picUrl.isNullOrEmpty()) {
+            if (!picUrl.isNullOrEmpty() && !skipCover) {
                 // 下载并缓存封面到本地文件，确保手机/平板通用
                 downloadAndCacheCover(context, itemId, picUrl, onCoverReady)
             }
@@ -71,18 +69,16 @@ object LyricUtils {
             val lyricResponse = neteaseApi.getLyric(bestMatch.id)
             val lrcText = lyricResponse.lrc?.lyric
             if (!lrcText.isNullOrBlank()) {
-                val metadata = mutableListOf(
-                    LrcLine(-1, title ?: "未知歌曲"),
-                    LrcLine(-1, artist ?: "未知艺术家"),
-                    LrcLine(-1, "来源: 网易云音乐 (智能匹配)")
-                )
                 val mainLyrics = LrcParser.parse(lrcText)
                 val tlyricText = lyricResponse.tlyric?.lyric
-                val finalLines = if (!tlyricText.isNullOrBlank()) {
-                    metadata + mergeLyrics(mainLyrics, LrcParser.parse(tlyricText))
+                val lyrics = if (!tlyricText.isNullOrBlank()) {
+                    mergeLyrics(mainLyrics, LrcParser.parse(tlyricText))
                 } else {
-                    metadata + mainLyrics
+                    mainLyrics
                 }
+
+                // 移除手动添加的 metadata，改用单一来源标注，减少干扰
+                val finalLines = listOf(LrcLine(-1, "来源: 网易云音乐")) + lyrics
 
                 // 写入内存和磁盘缓存
                 lyricsCache[itemId] = finalLines
@@ -98,7 +94,7 @@ object LyricUtils {
             Log.e("LyricUtils", "Failed to fetch Netease metadata: ${e.message}")
             // 如果是带歌手搜不到，尝试降级只搜标题
             if (!isArtistUnknown && cleanedTitle.isNotEmpty()) {
-                fetchNeteaseMetadata(context, itemId, cleanedTitle, null, null, durationMs, onCoverReady, onLyricsReady)
+                fetchNeteaseMetadata(context, itemId, cleanedTitle, null, null, durationMs, skipCover, onCoverReady, onLyricsReady)
             }
         }
     }
@@ -165,24 +161,21 @@ object LyricUtils {
             // 1. 歌手匹配 (权重最高)
             val songArtists = song.artists?.map { cleanString(it.name) } ?: emptyList()
             val artistMatched = songArtists.any { it == cleanTargetArtist || cleanTargetArtist.contains(it) || it.contains(cleanTargetArtist) }
-            if (!artistMatched) score += 500 // 歌手不对，直接排除
+            if (!artistMatched) score += 1000 // 歌手不对，极大惩罚
 
-            // 2. 专辑匹配 (这是匹配正确封面的关键)
+            // 2. 歌曲标题匹配 (次高权重)
             when {
-                cleanSongAlbum == cleanTargetAlbum -> score += 0
-                // Linkin Park 案例：主干一致 (Road to Revolution) 即可匹配，无视后缀差异
-                mainSongAlbum == mainTargetAlbum && mainTargetAlbum.isNotEmpty() -> score += 10 
-                cleanSongAlbum.contains(cleanTargetAlbum) || cleanTargetAlbum.contains(cleanSongAlbum) -> score += 30
-                else -> score += 100
+                cleanSongName == cleanTargetTitle -> score += 0
+                cleanSongName.contains(cleanTargetTitle) || cleanTargetTitle.contains(cleanSongName) -> score += 20
+                else -> score += 500 // 歌曲名不匹配，较大惩罚
             }
 
-            // 3. 歌曲标题匹配
-            if (cleanSongName == cleanTargetTitle) {
-                score += 0
-            } else if (cleanSongName.contains(cleanTargetTitle) || cleanTargetTitle.contains(cleanSongName)) {
-                score += 20
-            } else {
-                score += 100
+            // 3. 专辑匹配 (这是区分同名歌曲的关键)
+            when {
+                cleanSongAlbum == cleanTargetAlbum -> score += 0
+                mainSongAlbum == mainTargetAlbum && mainTargetAlbum.isNotEmpty() -> score += 10 
+                cleanSongAlbum.contains(cleanTargetAlbum) || cleanTargetAlbum.contains(cleanSongAlbum) -> score += 30
+                else -> score += 200 // 专辑不匹配，惩罚
             }
 
             // 4. 时长匹配 (封面匹配时，时长仅作为极弱参考)

@@ -11,7 +11,6 @@ import android.os.Looper
 import android.util.Log
 import android.util.TypedValue
 import android.view.View
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -19,7 +18,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.ComposeView
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
@@ -35,8 +37,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 @UnstableApi
 class HomeActivity : AppCompatActivity() {
@@ -86,12 +86,12 @@ class HomeActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         // 判断是否为平板
         isTablet = (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE
-        if (isTablet) {
+        requestedOrientation = if (isTablet) {
             // 平板：默认横屏，但允许旋转
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+            ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         } else {
             // 手机：强制竖屏
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
 
         super.onCreate(savedInstanceState)
@@ -99,27 +99,25 @@ class HomeActivity : AppCompatActivity() {
         setContentView(R.layout.activity_home)
 
         // 沉浸式处理：让背景容器占满全屏，底栏悬浮
-        val fragmentContainer = findViewById<FrameLayout>(R.id.fragment_container)
-        val ivBlurBackground = findViewById<ImageView>(R.id.ivBlurBackground)
-        
-        // 设置初始背景，防止冷启动黑屏或切换闪烁
-        ivBlurBackground?.setImageResource(R.drawable.bg_superman)
+        findViewById<ImageView>(R.id.ivBlurBackground)?.setImageResource(R.drawable.bg_superman)
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main_root)) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            val displayCutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val topInset = maxOf(systemBars.top, displayCutout.top)
+            
             v.setPadding(systemBars.left, 0, systemBars.right, 0)
-            // 移除 fragmentContainer 的 top padding 以实现沉浸式背景
-            // 各个 Fragment 内部需要自行处理内容避让
+
+            if (isTablet) {
+                findViewById<View>(R.id.statusBarSpacer)?.layoutParams?.height = topInset
+            }
+            
             insets
         }
 
         initApiService()
         setupMediaController()
         setupFragmentLifecycleListener()
-
-        if (isTablet) {
-            findViewById<View>(R.id.statusBarSpacer)?.layoutParams?.height = getStatusBarHeight()
-        }
 
         // 更新状态栏图标颜色
         updateStatusBarIcons()
@@ -172,7 +170,7 @@ class HomeActivity : AppCompatActivity() {
                     controller = controller,
                     selectedTab = selectedTab, 
                     onPlayerClick = { 
-                        if (isTablet && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+                        if (isTablet && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
                             // 平板横屏下，如果需要切换到播放器逻辑，可以在此处理，但目前需求是不弹出界面
                         } else {
                             showPlayer()
@@ -209,14 +207,19 @@ class HomeActivity : AppCompatActivity() {
                 })
                 updateBackground(controller.currentMediaItem)
             }
+
+            // 处理启动或新 Intent 要求的播放页显示
+            if (intent.getBooleanExtra("show_player", false)) {
+                showPlayer()
+            }
         }, MoreExecutors.directExecutor())
     }
 
     private fun updateStatusBarIcons() {
         val isDark = isDarkForce()
-        ViewCompat.getWindowInsetsController(window.decorView)?.let { controller ->
-            controller.isAppearanceLightStatusBars = !isDark
-            controller.isAppearanceLightNavigationBars = !isDark
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = !isDark
+            isAppearanceLightNavigationBars = !isDark
         }
     }
 
@@ -257,7 +260,7 @@ class HomeActivity : AppCompatActivity() {
                         try {
                             val item = service.getItem(userId, currentId, auth, auth)
                             parentId = item.ParentId ?: item.AlbumId
-                        } catch (e: Exception) {}
+                        } catch (_: Exception) {}
                     }
 
                     if (parentId != null) {
@@ -283,7 +286,6 @@ class HomeActivity : AppCompatActivity() {
                 }
 
                 // 2. 执行增量更新以保持播放无缝
-                // 关键：不要调用 setMediaItems，因为它会重置 Timeline 并清空缓冲
                 val currentIndex = controller.currentMediaItemIndex
                 val totalItems = controller.mediaItemCount
 
@@ -312,8 +314,7 @@ class HomeActivity : AppCompatActivity() {
                 if (controller.playbackState == Player.STATE_IDLE) {
                     controller.prepare()
                 }
-            } catch (e: Exception) {
-                Log.e("HomeActivity", "Update playlist error: ${e.message}")
+            } catch (_: Exception) {
             }
         }
     }
@@ -329,7 +330,7 @@ class HomeActivity : AppCompatActivity() {
             val artworkUri = metadata?.artworkUri
             val prefs = getSharedPreferences("netease_covers", MODE_PRIVATE)
             val cachedCover = mediaId?.let { prefs.getString(it, null) }
-            if (cachedCover != null) android.net.Uri.parse(cachedCover) else (artworkUri ?: R.drawable.bg_superman)
+            cachedCover?.toUri() ?: artworkUri ?: R.drawable.bg_superman
         } else {
             R.drawable.bg_superman
         }
@@ -374,11 +375,11 @@ class HomeActivity : AppCompatActivity() {
                 val detailResponse = neteaseApi.getSongDetail("[{\"id\":${song.id}}]")
                 val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
                 
-                if (!picUrl.isNullOrEmpty()) {
+                if (picUrl != null) {
                     withContext(Dispatchers.Main) {
                         if (mediaController?.currentMediaItem?.mediaId == mediaId) {
                             getSharedPreferences("netease_covers", MODE_PRIVATE)
-                                .edit().putString(mediaId, picUrl).apply()
+                                .edit { putString(mediaId, picUrl) }
                             
                             findViewById<ImageView>(R.id.ivBlurBackground)?.load(picUrl) {
                                 crossfade(true)
@@ -387,7 +388,7 @@ class HomeActivity : AppCompatActivity() {
                         }
                     }
                 }
-            } catch (e: Exception) { e.printStackTrace() }
+            } catch (_: Exception) { }
         }
     }
 
@@ -424,7 +425,7 @@ class HomeActivity : AppCompatActivity() {
                     controller.shuffleModeEnabled = false
                     controller.prepare()
                 }
-            } catch (e: Exception) { Log.e("HomeActivity", "Restore error: ${e.message}") }
+            } catch (_: Exception) { }
         }
     }
 
@@ -448,8 +449,7 @@ class HomeActivity : AppCompatActivity() {
                 } else {
                     Log.w("HomeActivity", "Music library not found for scanning")
                 }
-            } catch (e: Exception) { 
-                Log.e("HomeActivity", "Scan error: ${e.message}") 
+            } catch (_: Exception) { 
             }
         }
     }
@@ -547,8 +547,12 @@ class HomeActivity : AppCompatActivity() {
 
     // --- 导航 ---
     fun showPlayer() {
+        // 如果播放器已经显示，或者 MediaController 还没准备好，则不执行
+        if (isPlayerShown || supportFragmentManager.findFragmentByTag("player") != null || mediaController == null) {
+            return
+        }
         // 如果是平板且处于横屏模式，不弹出播放界面（因为已经常驻在中间栏了）
-        if (isTablet && resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+        if (isTablet && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
             return
         }
         val dialog = PlayerDialogFragment()
@@ -590,8 +594,7 @@ class HomeActivity : AppCompatActivity() {
                         showUpdateDialog(latestRelease)
                     }
                 }
-            } catch (e: Exception) {
-                Log.e("HomeActivity", "Check update failed: ${e.message}")
+            } catch (_: Exception) {
             }
         }
     }
@@ -616,7 +619,7 @@ class HomeActivity : AppCompatActivity() {
             .setMessage("更新日志：\n${release.body}")
             .setCancelable(false) // 必须用户手动点击按钮
             .setPositiveButton("立即去下载") { _, _ ->
-                val intent = Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(release.html_url))
+                val intent = Intent(Intent.ACTION_VIEW, release.html_url.toUri())
                 startActivity(intent)
             }
             .setNegativeButton("稍后再说", null)
@@ -641,11 +644,6 @@ class HomeActivity : AppCompatActivity() {
         updateStatusBarIcons()
         refreshSystemEffect()
         tabletPlayerHandler?.onConfigurationChanged()
-    }
-
-    private fun getStatusBarHeight(): Int {
-        val resourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
-        return if (resourceId > 0) resources.getDimensionPixelSize(resourceId) else 0
     }
 
     override fun onDestroy() {

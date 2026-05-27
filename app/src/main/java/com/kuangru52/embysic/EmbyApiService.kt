@@ -1,3 +1,4 @@
+@file:Suppress("unused", "PropertyName")
 package com.kuangru52.embysic
 
 import retrofit2.http.DELETE
@@ -85,14 +86,14 @@ interface EmbyApiService {
         @Header("X-Emby-Authorization") auth: String
     ): EmbyItemsResponse
 
-    @POST("emby/Sessions/Playing")
-    suspend fun reportPlaybackStart(
+    @POST("emby/Sessions/Playing/Stopped")
+    suspend fun reportPlaybackStop(
         @Header("X-Emby-Authorization") auth: String,
         @retrofit2.http.Body info: PlaybackReportInfo
     )
 
-    @POST("emby/Sessions/Playing/Stopped")
-    suspend fun reportPlaybackStopped(
+    @POST("emby/Sessions/Playing")
+    suspend fun reportPlaybackStart(
         @Header("X-Emby-Authorization") auth: String,
         @retrofit2.http.Body info: PlaybackReportInfo
     )

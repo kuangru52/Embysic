@@ -43,7 +43,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.view.animation.Animation
-import android.view.animation.AnimationUtils
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
@@ -54,8 +53,6 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 @UnstableApi
 class SearchFragment : Fragment() {
@@ -431,7 +428,7 @@ class SearchFragment : Fragment() {
                 }
                 val results = folders + music
                 adapter.submitList(results, context)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // 静默处理取消异常和 Job was cancelled 错误
             } finally {
                 progressBar.visibility = View.GONE

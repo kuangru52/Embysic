@@ -2,14 +2,9 @@ package com.kuangru52.embysic
 
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.View
-import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
@@ -81,6 +76,7 @@ class MainActivity : AppCompatActivity() {
 
         if (!savedServer.isNullOrEmpty() && !savedToken.isNullOrEmpty() && !savedUserId.isNullOrEmpty()) {
             val intent = android.content.Intent(this, HomeActivity::class.java)
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
             startActivity(intent)
             finish()
             return
@@ -667,6 +663,7 @@ class MainActivity : AppCompatActivity() {
                     // 跳转到 HomeActivity
                     @OptIn(UnstableApi::class)
                     val intent = android.content.Intent(this@MainActivity, HomeActivity::class.java)
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
                     startActivity(intent)
                     finish() // 登录成功后销毁登录页面
                 } else {

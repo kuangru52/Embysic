@@ -1,10 +1,8 @@
 package com.kuangru52.embysic
 
-import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
-import android.util.Log
 import android.util.LruCache
 import android.view.LayoutInflater
 import android.view.View
@@ -12,7 +10,6 @@ import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.core.widget.ImageViewCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.DiffUtil
@@ -55,7 +52,7 @@ class LibraryAdapter(
     private var serverUrl: String = ""
     private var accessToken: String = ""
 
-    private val neteasePrefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+    private val neteasePrefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
         notifyDataSetChanged()
     }
 

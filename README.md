@@ -53,6 +53,10 @@ Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户
 - **操作方式**：连点5次**曲库**按钮
 - **功能**：快速刷新emby server 上的音乐媒体库
 
+#### 8. 搜索页快速返回
+- **操作方式**：在搜索界面点击返回键
+- **功能**：第一次点击隐藏软键盘，第二次点击直接返回“曲库”列表。
+
 
 <a name="english"></a>
 ## English
@@ -102,3 +106,7 @@ To maintain a clean interface, we have designed several intuitive "hidden" inter
 #### 7. Refresh Media Library
 - **Action**: Click the **"Library"** button 5 times consecutively.
 - **Function**: Quickly trigger a refresh of the music library on your Emby server.
+
+#### 8. Search Page Quick Back
+- **Action**: Press the back button on the search screen.
+- **Function**: The first press hides the keyboard; the second press returns directly to the "Library" list.

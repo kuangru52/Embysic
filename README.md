@@ -8,7 +8,7 @@
 Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户端。它旨在为用户提供极致的音乐播放体验，结合了现代化的 UI 设计与流畅的交互逻辑，让您的 Emby 音乐库焕发新生。
 
 ### 📥 下载与安装
-- **最新版本**：[v2.17 - 点击从 GitHub Releases 下载](https://github.com/kuangru52/embysic/releases/latest)
+- **最新版本**：[v2.18 - 点击从 GitHub Releases 下载](https://github.com/kuangru52/embysic/releases/latest)
 - **更新亮点**：封面与歌词智能联动，沉浸式高斯模糊背景同步，性能大幅优化。
 
 ### 项目简介
@@ -18,7 +18,7 @@ Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户
 
 ### 隐藏功能与交互指南
 
-为了保持界面的简洁，我们设计了一系列直观的“隐藏”交互功能，让高级用户能够更高效地操控音乐：
+为了保持界面的简洁，我们 design 了一系列直观的“隐藏”交互功能，让高级用户能够更高效地操控音乐：
 
 #### 1. 歌词功能
 - **操作方式**：点击旋转唱片
@@ -33,7 +33,7 @@ Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户
 - **功能**：立即关闭播放器界面并自动跳转定位到该艺术家的所有专辑列表，方便您查看艺术家的其他专辑。
 
 #### 4. 音质转换
-- **操作方式**：连续点击55次正在转码 AAC 256kbps
+- **操作方式**：连续点击5次正在转码 AAC 256kbps
 - **功能**：进入源码播放模式，但每次冷启动默认为转码播放，以节省用户流量。
 
 #### 5. 音量调节
@@ -56,7 +56,7 @@ Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户
 Embysic is a visually stunning, lightweight Emby music client designed specifically for Android. It aims to provide an exceptional music playback experience, blending modern UI design with fluid interaction to breathe new life into your Emby music library.
 
 ### 📥 Download & Installation
-- **Latest Version**: [v2.17 - Click to download from GitHub Releases](https://github.com/kuangru52/embysic/releases/latest)
+- **Latest Version**: [v2.18 - Click to download from GitHub Releases](https://github.com/kuangru52/embysic/releases/latest)
 - **Update Highlights**: Intelligent linkage between album art and lyrics, immersive Gaussian blur background synchronization, and significant performance optimizations.
 
 ### Project Introduction
@@ -80,7 +80,7 @@ To maintain a clean interface, we have designed several intuitive "hidden" inter
 - **Function**: Instantly closes the player and jumps to the list of all albums by that artist.
 
 #### 4. Audio Quality Toggle
-- **Action**: Click the "Transcoding AAC 256kbps" text 55 times consecutively.
+- **Action**: Click the "Transcoding AAC 256kbps" text 5 times consecutively.
 - **Function**: Switch to direct source playback mode. Note: It defaults back to transcoding on every cold start to save data.
 
 #### 5. Volume Control

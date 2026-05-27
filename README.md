@@ -12,6 +12,10 @@ Embysic 是一款专为 Android 打造的高颜值、轻量化 Emby 音乐客户
 - **更新亮点**：封面与歌词智能联动，沉浸式高斯模糊背景同步，性能大幅优化。
 
 ### 项目简介
+- **智能元数据刮削**：这是 Embysic 最核心的特性之一。应用能自动从网络匹配并获取缺失的专辑封面和同步歌词，即使您的 Emby 服务端配置不全，也能拥有完美的视听体验。
+- **沉浸式交互**：结合动态高斯模糊背景与优雅的动画，打造极致的播放氛围。
+- **轻量高效**：极小的包体积，流畅的列表滚动与快速的流媒体加载。
+
 ![示例图片](https://images2.imgbox.com/5b/7b/Z6TOtilC_o.jpg)
 ![示例图片](https://images2.imgbox.com/1b/07/c3vhaSln_o.png)
 
@@ -60,6 +64,10 @@ Embysic is a visually stunning, lightweight Emby music client designed specifica
 - **Update Highlights**: Intelligent linkage between album art and lyrics, immersive Gaussian blur background synchronization, and significant performance optimizations.
 
 ### Project Introduction
+- **Smart Metadata Scraping**: One of the most significant features of Embysic. The app automatically matches and fetches missing album covers and synchronized lyrics from the web, ensuring a complete experience even if your Emby server metadata is incomplete.
+- **Immersive Interaction**: Combines dynamic Gaussian blur backgrounds with elegant animations to create a premium playback atmosphere.
+- **Lightweight & Efficient**: Small package size with smooth list scrolling and fast streaming capabilities.
+
 ![Sample Image](https://images2.imgbox.com/5b/7b/Z6TOtilC_o.jpg)
 ![Sample Image](https://images2.imgbox.com/1b/07/c3vhaSln_o.png)
 

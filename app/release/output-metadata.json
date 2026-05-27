@@ -11,9 +11,9 @@
       "type": "SINGLE",
       "filters": [],
       "attributes": [],
-      "versionCode": 217,
-      "versionName": "2.17",
-      "outputFile": "Embysic-2.17.apk"
+      "versionCode": 218,
+      "versionName": "2.18",
+      "outputFile": "Embysic-2.18.apk"
     }
   ],
   "elementType": "File",
@@ -22,14 +22,14 @@
       "minApi": 28,
       "maxApi": 30,
       "baselineProfiles": [
-        "baselineProfiles/1/Embysic-2.17.dm"
+        "baselineProfiles/1/Embysic-2.18.dm"
       ]
     },
     {
       "minApi": 31,
       "maxApi": 2147483647,
       "baselineProfiles": [
-        "baselineProfiles/0/Embysic-2.17.dm"
+        "baselineProfiles/0/Embysic-2.18.dm"
       ]
     }
   ],

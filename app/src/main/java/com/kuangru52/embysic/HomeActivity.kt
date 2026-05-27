@@ -134,6 +134,22 @@ class HomeActivity : AppCompatActivity() {
                     supportFragmentManager.popBackStack()
                     return
                 }
+
+                // 搜索页返回逻辑：第一次退键盘，第二次回曲库
+                if (selectedTab == "Search") {
+                    val insets = ViewCompat.getRootWindowInsets(window.decorView)
+                    val isImeVisible = insets?.isVisible(WindowInsetsCompat.Type.ime()) == true
+                    if (isImeVisible) {
+                        WindowCompat.getInsetsController(window, window.decorView)
+                            .hide(WindowInsetsCompat.Type.ime())
+                        return
+                    }
+                    
+                    selectedTab = "Library"
+                    replaceFragment(LibraryFragment())
+                    return
+                }
+
                 val currentTime = System.currentTimeMillis()
                 if (currentTime - lastBackTime < 2000) {
                     finish()

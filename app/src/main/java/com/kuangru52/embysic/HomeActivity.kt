@@ -74,6 +74,15 @@ class HomeActivity : AppCompatActivity() {
         return isTabletLandscape || systemIsDark
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("show_player", false)) {
+            // 如果已经在首页，点击通知栏跳转到播放页
+            showPlayer()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // 判断是否为平板
         isTablet = (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE

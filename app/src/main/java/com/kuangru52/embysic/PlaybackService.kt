@@ -117,6 +117,17 @@ class PlaybackService : MediaSessionService() {
 
         mediaSession = MediaSession.Builder(this, wrappedPlayer)
             .setCallback(CustomCallback())
+            .setSessionActivity(
+                android.app.PendingIntent.getActivity(
+                    this,
+                    0,
+                    android.content.Intent(this, HomeActivity::class.java).apply {
+                        putExtra("show_player", true)
+                        flags = android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    },
+                    android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
             .build()
             
         startProgressReporting()
@@ -206,12 +217,15 @@ class PlaybackService : MediaSessionService() {
         val currentItem = exoPlayer.currentMediaItem ?: return
         if (getBaseMediaId(currentItem.mediaId) != baseId) return
         
-        // 如果已经是这个 URI 了，则不再更新，防止无限触发 transition
-        if (currentItem.mediaMetadata.artworkUri == artworkUri) return
-
-        val newMetadata = currentItem.mediaMetadata.buildUpon()
+        // 增加 LargeIcon (专辑封面)
+        val metadataBuilder = currentItem.mediaMetadata.buildUpon()
             .setArtworkUri(artworkUri)
-            .build()
+        
+        currentArtworkBitmap?.let {
+            metadataBuilder.setArtworkData(MediaItemUtils.bitmapToByteArray(it), MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+        }
+
+        val newMetadata = metadataBuilder.build()
         val newItem = currentItem.buildUpon()
             .setMediaMetadata(newMetadata)
             .build()

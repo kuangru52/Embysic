@@ -180,4 +180,10 @@ object MediaItemUtils {
             null
         }
     }
+
+    fun bitmapToByteArray(bitmap: Bitmap): ByteArray {
+        val stream = java.io.ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+        return stream.toByteArray()
+    }
 }

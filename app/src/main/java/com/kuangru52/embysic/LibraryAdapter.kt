@@ -342,14 +342,15 @@ class LibraryAdapter(
                     else -> tvArtist.setTextColor(currentSecondary)
                 }
                 ivIcon.tag = item.Id
-                ivIcon.scaleType = ImageView.ScaleType.CENTER_CROP
                 
-                // 音乐文件封面使用圆角矩形背景（12dp 圆角）
-                ivIcon.setBackgroundResource(R.drawable.bg_compact_card)
+                // 统一使用圆角矩形背景
+                ivIcon.setBackgroundResource(R.drawable.bg_rounded_icon)
                 ivIcon.clipToOutline = true
 
                 val cachedBitmap = bitmapCache.get(item.Id)
                 if (cachedBitmap != null) {
+                    ivIcon.scaleType = ImageView.ScaleType.CENTER_CROP
+                    ivIcon.setPadding(0, 0, 0, 0)
                     ivIcon.setImageBitmap(cachedBitmap)
                 } else {
                     val neteaseCovers = itemView.context.getSharedPreferences("netease_covers", AppCompatActivity.MODE_PRIVATE)
@@ -357,14 +358,11 @@ class LibraryAdapter(
                     
                     val hasPrimary = item.ImageTags?.containsKey("Primary") == true
                     val imageId = if (hasPrimary) item.Id else (item.AlbumId ?: item.Id)
-                    // 列表页使用 200px 缩略图，极度节省流量
                     val serverImageUrl = "${serverUrl.trimEnd('/')}/emby/Items/$imageId/Images/Primary?MaxWidth=200&api_key=$accessToken"
                     
-                    // 优先级：服务器封面（歌曲或专辑）-> 网易云缓存 -> 服务器封面（作为兜底）
                     val finalImageUrl = if (hasPrimary || item.AlbumId != null) {
                         serverImageUrl
                     } else if (cachedUrl != null) {
-                        // 统一清洗 URL 并应用 200px 尺寸
                         if (cachedUrl.startsWith("http")) {
                             val cleanUrl = if (cachedUrl.contains("?")) cachedUrl.substringBefore("?") else cachedUrl
                             "$cleanUrl?param=200y200"
@@ -374,17 +372,35 @@ class LibraryAdapter(
                     }
 
                     ivIcon.load(finalImageUrl) {
-                        placeholder(R.drawable.cd)
-                        error(R.drawable.cd)
+                        placeholder(R.drawable.logo)
+                        error(R.drawable.logo)
                         crossfade(true)
-                        listener(onError = { _, _ -> 
-                            if (finalImageUrl == serverImageUrl && !hasPrimary && cachedUrl != null) {
-                                // 如果服务器加载失败且有缓存，尝试加载缓存
-                                ivIcon.load(cachedUrl) { crossfade(true) }
-                            } else if (finalImageUrl == serverImageUrl && !hasPrimary) {
-                                loadCoverFromTags(item, serverUrl, accessToken)
+                        // 根据加载状态动态调整
+                        listener(
+                            onStart = {
+                                // 默认占位图状态：居中且带边距
+                                ivIcon.scaleType = ImageView.ScaleType.FIT_CENTER
+                                val p = (6 * itemViewContext.resources.displayMetrics.density).toInt()
+                                ivIcon.setPadding(p, p, p, p)
+                            },
+                            onSuccess = { _, _ -> 
+                                // 加载成功：填满且无边距
+                                ivIcon.scaleType = ImageView.ScaleType.CENTER_CROP
+                                ivIcon.setPadding(0, 0, 0, 0)
+                            },
+                            onError = { _, _ ->
+                                // 加载失败（显示错误图）：居中且带边距
+                                ivIcon.scaleType = ImageView.ScaleType.FIT_CENTER
+                                val p = (6 * itemViewContext.resources.displayMetrics.density).toInt()
+                                ivIcon.setPadding(p, p, p, p)
+                                
+                                if (finalImageUrl == serverImageUrl && !hasPrimary && cachedUrl != null) {
+                                    ivIcon.load(cachedUrl) { crossfade(true) }
+                                } else if (finalImageUrl == serverImageUrl && !hasPrimary) {
+                                    loadCoverFromTags(item, serverUrl, accessToken)
+                                }
                             }
-                        })
+                        )
                     }
                 }
             }

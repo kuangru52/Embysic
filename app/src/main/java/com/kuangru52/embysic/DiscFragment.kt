@@ -84,8 +84,8 @@ class DiscFragment : Fragment() {
 
         ivCover.load(artworkUri) {
             crossfade(true)
-            placeholder(R.drawable.cd)
-            error(R.drawable.cd)
+            placeholder(R.drawable.logo)
+            error(R.drawable.logo)
         }
         
         // 更新旋转状态

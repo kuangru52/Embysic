@@ -705,7 +705,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             if (coverFile.exists()) {
                 ivCover.load(coverFile) {
                     crossfade(true)
-                    placeholder(R.drawable.cd)
+                    placeholder(R.drawable.logo)
                     listener(onSuccess = { _, _ -> updateBlurBackground(coverFile) })
                 }
             } else {
@@ -731,7 +731,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                     if (getBaseMediaId(player?.currentMediaItem?.mediaId) == itemId) {
                         ivCover.load(data) {
                             crossfade(true)
-                            placeholder(R.drawable.cd)
+                            placeholder(R.drawable.logo)
                             listener(onSuccess = { _, _ -> updateBlurBackground(data) })
                         }
                     }
@@ -779,17 +779,17 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                         if (artworkUri != null) {
                             ivCover.load(artworkUri) {
                                 crossfade(true)
-                                placeholder(R.drawable.cd)
-                                error(R.drawable.cd)
+                                placeholder(R.drawable.logo)
+                                error(R.drawable.logo)
                                 listener(onSuccess = { _, _ -> updateBlurBackground(artworkUri) })
                             }
                         } else {
-                            ivCover.setImageResource(R.drawable.cd)
+                            ivCover.setImageResource(R.drawable.logo)
                         }
                     }
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { ivCover.setImageResource(R.drawable.cd) }
+                withContext(Dispatchers.Main) { ivCover.setImageResource(R.drawable.logo) }
             } finally {
                 try { retriever.release() } catch (e: Exception) {}
             }

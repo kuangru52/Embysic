@@ -190,8 +190,8 @@ fun BottomTabs(
                         model = ImageRequest.Builder(context)
                             .data(finalUri)
                             .crossfade(true)
-                            .placeholder(R.drawable.cd)
-                            .error(R.drawable.cd)
+                            .placeholder(R.drawable.logo)
+                            .error(R.drawable.logo)
                             .build(),
                         contentDescription = null,
                         modifier = Modifier

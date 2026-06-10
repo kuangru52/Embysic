@@ -30,6 +30,13 @@ class LyricsAdapter(
         }
 
     private var currentLineIndex = -1
+    private var clickedLineIndex = -1
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val resetClickedIndexRunnable = Runnable {
+        val oldIndex = clickedLineIndex
+        clickedLineIndex = -1
+        if (oldIndex != -1) notifyItemChanged(oldIndex)
+    }
 
     fun updateActiveLine(timeMs: Long): Int {
         val index = lines.indexOfLast { it.timeMs in 0..timeMs }
@@ -52,9 +59,13 @@ class LyricsAdapter(
         val line = lines[position]
             
         val textView = holder.itemView.findViewById<TextView>(R.id.tvLyricLine)
+        val ivPlayIndicator = holder.itemView.findViewById<android.widget.ImageView>(R.id.ivPlayIndicator)
+        val llLyricContent = holder.itemView.findViewById<View>(R.id.llLyricContent)
+        
         textView.text = line.text
-        textView.textAlignment = View.TEXT_ALIGNMENT_CENTER
-        textView.setPadding(32, 16, 32, 16)
+        
+        // 显示/隐藏播放反馈图标
+        ivPlayIndicator?.visibility = if (position == clickedLineIndex) View.VISIBLE else View.GONE
         
         // 增加文字阴影，防止背景亮时看不清（播放页始终是深色背景）
         textView.setShadowLayer(4f, 2f, 2f, 0x80000000.toInt())
@@ -80,12 +91,27 @@ class LyricsAdapter(
             }
         }
 
-        holder.itemView.setOnClickListener {
+        // 点击歌词内容区域（文字+图标）：如果是歌词则跳转并显示反馈，如果是元数据则返回唱片页
+        llLyricContent?.setOnClickListener {
             if (line.timeMs >= 0 && onSeekTo != null) {
+                // 显示点击反馈
+                val oldClicked = clickedLineIndex
+                clickedLineIndex = holder.adapterPosition
+                if (oldClicked != -1) notifyItemChanged(oldClicked)
+                if (clickedLineIndex != -1) notifyItemChanged(clickedLineIndex)
+                
+                handler.removeCallbacks(resetClickedIndexRunnable)
+                handler.postDelayed(resetClickedIndexRunnable, 2000)
+
                 onSeekTo.invoke(line.timeMs)
             } else {
                 onItemClick()
             }
+        }
+
+        // 点击行内剩余空白区域（FrameLayout）直接返回唱片页
+        holder.itemView.setOnClickListener {
+            onItemClick()
         }
     }
 

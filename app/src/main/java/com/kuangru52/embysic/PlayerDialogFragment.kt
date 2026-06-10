@@ -83,6 +83,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }
     }
     private lateinit var rvLyrics: RecyclerView
+    private lateinit var mainContent: View
     private lateinit var contentContainer: View
     private lateinit var flHintContainer: View
     private lateinit var pbDownload: ProgressBar
@@ -309,6 +310,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         cvAlbumArt = view.findViewById(R.id.cvAlbumArt)
         ivNeedle = view.findViewById(R.id.ivNeedle)
         rvLyrics = view.findViewById(R.id.rvLyrics)
+        mainContent = view.findViewById(R.id.mainContent)
         contentContainer = view.findViewById(R.id.contentContainer)
         flHintContainer = view.findViewById(R.id.flHintContainer)
         pbDownload = view.findViewById(R.id.pbDownload)
@@ -471,7 +473,30 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             if (rvLyrics.isVisible) hideLyrics() else showLyrics()
         }
 
-        rvLyrics.setOnClickListener { hideLyrics() }
+        // 处理歌词界面空白区域点击回到唱片页
+        rvLyrics.addOnItemTouchListener(object : RecyclerView.OnItemTouchListener {
+            private val gestureDetector = android.view.GestureDetector(context, object : android.view.GestureDetector.SimpleOnGestureListener() {
+                override fun onSingleTapUp(e: android.view.MotionEvent): Boolean {
+                    val child = rvLyrics.findChildViewUnder(e.x, e.y)
+                    if (child == null) {
+                        hideLyrics()
+                        return true
+                    }
+                    return false
+                }
+            })
+            override fun onInterceptTouchEvent(rv: RecyclerView, e: android.view.MotionEvent): Boolean {
+                gestureDetector.onTouchEvent(e)
+                return false
+            }
+            override fun onTouchEvent(rv: RecyclerView, e: android.view.MotionEvent) {}
+            override fun onRequestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {}
+        })
+        
+        // 点击主容器背景（非子控件区域）也触发返回
+        mainContent.setOnClickListener {
+            if (rvLyrics.isVisible) hideLyrics()
+        }
         
         rvLyrics.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {

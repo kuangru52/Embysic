@@ -12,7 +12,8 @@ import android.content.res.Configuration
 import androidx.recyclerview.widget.RecyclerView
 
 class LyricsAdapter(
-    private val onItemClick: () -> Unit
+    private val onItemClick: () -> Unit,
+    private val onSeekTo: ((Long) -> Unit)? = null
 ) : RecyclerView.Adapter<LyricsAdapter.ViewHolder>() {
 
     private fun Context.getColorFromAttr(@AttrRes attr: Int): Int {
@@ -80,7 +81,11 @@ class LyricsAdapter(
         }
 
         holder.itemView.setOnClickListener {
-            onItemClick()
+            if (line.timeMs >= 0 && onSeekTo != null) {
+                onSeekTo.invoke(line.timeMs)
+            } else {
+                onItemClick()
+            }
         }
     }
 

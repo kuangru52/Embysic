@@ -44,9 +44,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import jp.wasabeef.transformers.coil.BlurTransformation
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.Locale
 
 @UnstableApi
@@ -103,7 +101,17 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
     private lateinit var heartLayout: HeartLayout
 
-    private val lyricsAdapter = LyricsAdapter { hideLyrics() }
+    private val lyricsAdapter = LyricsAdapter(
+        onItemClick = { hideLyrics() },
+        onSeekTo = { timeMs ->
+            player?.let { p ->
+                p.seekTo(timeMs)
+                p.play()
+                // 添加轻微触感反馈，提升操作感
+                view?.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+            }
+        }
+    )
     private var player: Player? = null
     fun setPlayer(player: Player) {
         this.player = player
@@ -308,7 +316,7 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         llVolumeHint = view.findViewById(R.id.llVolumeHint)
         heartLayout = view.findViewById(R.id.heartLayout)
 
-        ivNeedle.rotation = -25f // 初始设置为暂停时的角度
+        ivNeedle.rotation = -35f // 初始设置为暂停时的角度
 
         rvLyrics.layoutManager = LinearLayoutManager(context)
         rvLyrics.adapter = lyricsAdapter
@@ -605,7 +613,9 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             btnPlayPause.setImageResource(if (isPlaying) R.drawable.ic_pause_vector else R.drawable.ic_play_vector)
             updateNeedle(isPlaying)
             if (isPlaying && !rvLyrics.isVisible) {
-                discRotationHandler.post(discRotationRunnable)
+                // 延迟开启旋转，等唱针落下，视觉上更真实
+                discRotationHandler.removeCallbacks(discRotationRunnable)
+                discRotationHandler.postDelayed(discRotationRunnable, 400)
             } else {
                 discRotationHandler.removeCallbacks(discRotationRunnable)
             }
@@ -654,8 +664,9 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
 
     private fun updateNeedle(isPlaying: Boolean) {
         ivNeedle.animate()
-            .rotation(if (isPlaying) -8f else -35f) // 15f 是【播放/放下】角度，-25f 是【暂停/抬起】角度
-            .setDuration(400) // 稍微慢一点更像机械臂
+            .rotation(if (isPlaying) -8f else -35f)
+            .setDuration(400)
+            .setInterpolator(android.view.animation.AccelerateDecelerateInterpolator())
             .start()
     }
 
@@ -784,62 +795,6 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }
     }
 
-    private fun loadCoverFromTags(itemId: String) {
-        val serverUrl = context?.getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)?.getString("server_url", "") ?: ""
-        val accessToken = context?.getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)?.getString("access_token", "") ?: ""
-        val streamUrl = "${serverUrl.trimEnd('/')}/emby/Audio/$itemId/stream?static=true&api_key=$accessToken"
-        
-        lifecycleScope.launch(Dispatchers.IO) {
-            val retriever = android.media.MediaMetadataRetriever()
-            try {
-                retriever.setDataSource(streamUrl, mapOf("X-Emby-Token" to accessToken))
-                val picture = retriever.embeddedPicture
-                if (picture != null) {
-                    val bitmap = android.graphics.BitmapFactory.decodeByteArray(picture, 0, picture.size)
-                    if (bitmap != null) {
-                        MediaItemUtils.saveCoverToFile(requireContext(), itemId, bitmap)
-                        withContext(Dispatchers.Main) {
-                            if (getBaseMediaId(player?.currentMediaItem?.mediaId) == itemId) {
-                                ivCover.load(bitmap) {
-                                    crossfade(true)
-                                    // 只有当前没图时才显示占位符
-                                    if (ivCover.drawable == null) {
-                                        placeholder(R.drawable.logo)
-                                    }
-                                    listener(onSuccess = { _, _ -> updateBlurBackground(bitmap) })
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // 内置也没，尝试 Emby 原生 Primary
-                    withContext(Dispatchers.Main) {
-                        val mediaItem = player?.currentMediaItem
-                        val artworkUri = mediaItem?.mediaMetadata?.artworkUri
-                        if (artworkUri != null) {
-                            ivCover.load(artworkUri) {
-                                crossfade(true)
-                                if (ivCover.drawable == null) {
-                                    placeholder(R.drawable.logo)
-                                }
-                                error(R.drawable.logo)
-                                listener(onSuccess = { _, _ -> updateBlurBackground(artworkUri) })
-                            }
-                        } else {
-                            // 只有确认什么都没有时，才设为 logo
-                            if (ivCover.drawable == null) {
-                                ivCover.setImageResource(R.drawable.logo)
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) {
-                withContext(Dispatchers.Main) { ivCover.setImageResource(R.drawable.logo) }
-            } finally {
-                try { retriever.release() } catch (_: Exception) {}
-            }
-        }
-    }
 
     private fun updateUIProgress(p: Player) {
         if (isDragging || !isAdded) return

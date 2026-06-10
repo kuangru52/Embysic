@@ -136,9 +136,14 @@ class TabletPlayerHandler(
     }
 
     private fun setupLyrics() {
-        lyricsAdapter = LyricsAdapter {
-            // 平板模式下点击歌词暂无特定动作
-        }
+        lyricsAdapter = LyricsAdapter(
+            onItemClick = {
+                // 平板模式下点击歌词暂无特定动作
+            },
+            onSeekTo = { time ->
+                controller.seekTo(time)
+            }
+        )
         val layoutManager = LinearLayoutManager(activity)
         rvLyricsRight?.layoutManager = layoutManager
         rvLyricsRight?.adapter = lyricsAdapter

@@ -143,7 +143,7 @@ class ArtistFragment : Fragment() {
             progressBar.visibility = View.VISIBLE
             try {
                 val response = service.getArtists(userId, authHeader)
-                adapter.submitList(response.Items, context)
+                adapter.submitList(response.Items)
             } catch (e: Exception) {
                 Toast.makeText(context, "加载艺人失败: ${e.message}", Toast.LENGTH_SHORT).show()
             } finally {

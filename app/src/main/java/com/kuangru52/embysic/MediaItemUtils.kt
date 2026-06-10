@@ -1,6 +1,8 @@
 package com.kuangru52.embysic
 
 import android.net.Uri
+import androidx.core.net.toUri
+import androidx.core.content.edit
 import android.os.Bundle
 import android.content.Context
 import android.graphics.Bitmap
@@ -58,7 +60,7 @@ object MediaItemUtils {
         // 2.5 如果仍为空，或者为系统默认名称，尝试读取 /vendor/odm/etc/build.prop
         if (name.isBlank()) {
             try {
-                val file = java.io.File("/vendor/odm/etc/build.prop")
+                val file = File("/vendor/odm/etc/build.prop")
                 if (file.exists() && file.canRead()) {
                     file.useLines { lines ->
                         for (line in lines) {
@@ -91,7 +93,7 @@ object MediaItemUtils {
         song: EmbyItem,
         serverUrl: String,
         accessToken: String,
-        userId: String,
+        userId: String, //userId 虽然在此处未使用，但保留参数以维持与旧版 API 的兼容性
         startMs: Long = 0L,
         endMs: Long = 0L,
         forceDirect: Boolean = isForceDirectMode,
@@ -169,14 +171,14 @@ object MediaItemUtils {
             .setArtist(song.Artists?.joinToString(", ") ?: "未知艺术家")
             .setAlbumTitle(song.Album)
             .setAlbumArtist(song.AlbumArtists?.firstOrNull()?.Name ?: song.Artists?.firstOrNull())
-            .setArtworkUri(Uri.parse(artworkUrl))
+            .setArtworkUri(artworkUrl.toUri())
             .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
             .setIsPlayable(true)
             .setExtras(extras)
             .build()
 
         return MediaItem.Builder()
-            .setUri(Uri.parse(streamUrl))
+            .setUri(streamUrl.toUri())
             .setMediaId(if (startMs > 0) "${song.Id}_$startMs" else song.Id)
             .setMimeType(mimeType)
             .setClippingConfiguration(
@@ -198,8 +200,9 @@ object MediaItemUtils {
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)
             }
             val path = file.absolutePath
-            context.getSharedPreferences("netease_covers", Context.MODE_PRIVATE)
-                .edit().putString(itemId, path).apply()
+            context.getSharedPreferences("netease_covers", Context.MODE_PRIVATE).edit {
+                putString(itemId, path)
+            }
             path
         } catch (e: Exception) {
             e.printStackTrace()

@@ -465,25 +465,18 @@ class LibraryFragment : Fragment() {
         val playableItems = allItems.filter { !it.IsFolder }
         val isSameSong = item.Id == currentId
         
-        val mediaItems = playableItems.map { song ->
-            val overrideId = if (song.Id == currentId) currentSessionId else null
-            MediaItemUtils.buildMediaItem(requireContext(), song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
-        }
-        
         if (isSameSong) {
-            controller.setMediaItems(mediaItems, false)
             controller.play()
         } else {
-            val startIndex = playableItems.indexOfFirst { it.Id == item.Id }.coerceAtLeast(0)
-            controller.setMediaItems(mediaItems, startIndex, 0L)
+            // 构建一个只包含当前歌曲的列表，然后通过 updatePlaylistByMode 自动拉取同文件夹列表
+            val mediaItem = MediaItemUtils.buildMediaItem(requireContext(), item, serverUrl, accessToken, userId)
+            controller.setMediaItem(mediaItem)
             
             controller.prepare()
             controller.play()
 
-            // 核心修正：同步当前的随机模式状态
-            if (currentShuffleMode) {
-                (activity as? HomeActivity)?.updatePlaylistByMode(true)
-            }
+            // 无论当前模式是什么，都根据当前模式更新为同文件夹或随机列表
+            (activity as? HomeActivity)?.updatePlaylistByMode(controller.shuffleModeEnabled)
         }
 
         // 核心修正：在 Media3 更新列表后，强制写回之前的播放模式，防止其重置为列表循环

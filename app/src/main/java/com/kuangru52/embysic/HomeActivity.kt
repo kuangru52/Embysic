@@ -170,6 +170,9 @@ class HomeActivity : AppCompatActivity() {
                 // 冷启动且已有项目（可能由于 Service 重用），确保默认模式
                 controller.repeatMode = Player.REPEAT_MODE_ALL
                 controller.shuffleModeEnabled = false
+                
+                // 确保列表是当前歌曲所在的文件夹
+                updatePlaylistByMode(false)
             }
 
             findViewById<ComposeView>(R.id.bottom_container)?.let { composeView ->

@@ -224,24 +224,15 @@ class FavoriteFragment : Fragment() {
     private fun playMusic(item: EmbyItem, allItems: List<EmbyItem>) {
         val controller = (activity as? HomeActivity)?.mediaController ?: return
         val currentMediaItem = controller.currentMediaItem
-        val currentSessionId = currentMediaItem?.mediaMetadata?.extras?.getString("play_session_id")
         val currentId = currentMediaItem?.mediaId
-
-        // 备份当前模式
-        val currentShuffleMode = controller.shuffleModeEnabled
-
-        val mediaItems = allItems.map { song ->
-            val overrideId = if (song.Id == currentId) currentSessionId else null
-            MediaItemUtils.buildMediaItem(requireContext(), song, serverUrl, accessToken, userId, overrideSessionId = overrideId)
-        }
 
         val isSameSong = item.Id == currentId
         if (isSameSong) {
-            controller.setMediaItems(mediaItems, false)
             controller.play()
         } else {
-            val startIndex = mediaItems.indexOfFirst { it.mediaId == item.Id }.coerceAtLeast(0)
-            controller.setMediaItems(mediaItems, startIndex, 0L)
+            // 构建一个只包含当前歌曲的列表，然后通过 updatePlaylistByMode 自动拉取同文件夹列表
+            val mediaItem = MediaItemUtils.buildMediaItem(requireContext(), item, serverUrl, accessToken, userId)
+            controller.setMediaItem(mediaItem)
             
             // 断点续听
             val lastPositionTicks = item.UserData?.PlaybackPositionTicks ?: 0L
@@ -252,10 +243,8 @@ class FavoriteFragment : Fragment() {
             controller.prepare()
             controller.play()
             
-            // 核心修正：同步当前的随机模式状态
-            if (currentShuffleMode) {
-                (activity as? HomeActivity)?.updatePlaylistByMode(true)
-            }
+            // 无论当前模式是什么，都根据当前模式更新为同文件夹或随机列表
+            (activity as? HomeActivity)?.updatePlaylistByMode(controller.shuffleModeEnabled)
         }
 
         // 播放后自动弹出播放页面

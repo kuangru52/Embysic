@@ -447,22 +447,16 @@ class SearchFragment : Fragment() {
 
     private fun playMusic(item: EmbyItem, allItems: List<EmbyItem>) {
         val controller = (activity as? HomeActivity)?.mediaController ?: return
-        val currentShuffleMode = controller.shuffleModeEnabled
 
-        val playableItems = allItems.filter { !it.IsFolder }
-        val mediaItems = playableItems.map { song ->
-            MediaItemUtils.buildMediaItem(requireContext(), song, serverUrl, accessToken, userId)
-        }
-        val startIndex = playableItems.indexOfFirst { it.Id == item.Id }.coerceAtLeast(0)
-        controller.setMediaItems(mediaItems, startIndex, 0L)
+        // 构建一个只包含当前歌曲的列表，然后通过 updatePlaylistByMode 自动拉取同文件夹列表
+        val mediaItem = MediaItemUtils.buildMediaItem(requireContext(), item, serverUrl, accessToken, userId)
+        controller.setMediaItem(mediaItem)
         
         controller.prepare()
         controller.play()
         
-        // 核心修正：同步当前的随机模式状态
-        if (currentShuffleMode) {
-            (activity as? HomeActivity)?.updatePlaylistByMode(true)
-        }
+        // 无论当前模式是什么，都根据当前模式更新为同文件夹或随机列表
+        (activity as? HomeActivity)?.updatePlaylistByMode(controller.shuffleModeEnabled)
         (activity as? HomeActivity)?.showPlayer()
     }
 

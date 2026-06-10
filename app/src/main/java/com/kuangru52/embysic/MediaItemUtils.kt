@@ -138,6 +138,7 @@ object MediaItemUtils {
 
         val extras = Bundle().apply {
             putString("item_id", song.Id)
+            putString("parent_id", song.ParentId ?: song.AlbumId)
             putString("album_id", song.AlbumId)
             putString("path", song.Path)
             putString("media_source_id", mediaSourceId)

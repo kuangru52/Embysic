@@ -7,7 +7,9 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -132,15 +134,25 @@ fun Modifier.metaballIndicator(isDark: Boolean, targetX: Float, targetY: Float, 
 }
 
 fun Modifier.glassNavItem(isSelected: Boolean, onClick: () -> Unit): Modifier = composed {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isFocused by interactionSource.collectIsFocusedAsState()
+    
     val scale by animateFloatAsState(
-        targetValue = if (isSelected) 1.15f else 1.0f, 
+        targetValue = when {
+            isFocused -> 1.25f // 聚焦时放得更大
+            isSelected -> 1.15f 
+            else -> 1.0f
+        }, 
         animationSpec = spring(dampingRatio = 0.5f, stiffness = Spring.StiffnessLow)
     )
-    this.scale(scale).clickable(
-        interactionSource = remember { MutableInteractionSource() }, 
-        indication = null, 
-        onClick = onClick
-    )
+
+    this.scale(scale)
+        .focusable(interactionSource = interactionSource)
+        .clickable(
+            interactionSource = interactionSource, 
+            indication = null, 
+            onClick = onClick
+        )
 }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)

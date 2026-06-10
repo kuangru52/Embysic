@@ -14,6 +14,7 @@ import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextStyle
@@ -43,6 +45,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.view.animation.Animation
+
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
@@ -75,7 +78,7 @@ class SearchFragment : Fragment() {
     private var userId = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"2.13\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val root = FrameLayout(requireContext()).apply {
@@ -151,21 +154,26 @@ class SearchFragment : Fragment() {
         val isDark = if (isTabletLandscape) true else isSystemInDarkTheme()
         val bgColor = if (isDark) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.8f)
         
+        val isTv = false
+        var isFocused by remember { mutableStateOf(false) }
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
         LaunchedEffect(Unit) {
             focusRequester.requestFocus()
-            keyboardController?.show()
+            if (!isTv) keyboardController?.show()
         }
         
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp)
-                .height(52.dp),
+                .height(52.dp)
+                .onFocusChanged { isFocused = it.isFocused },
             shape = RoundedCornerShape(32.dp),
-            color = bgColor
+            color = bgColor,
+            border = if (isTv && isFocused) BorderStroke(2.dp, Color(0xFFFFD700)) else null,
+            tonalElevation = if (isTv && isFocused) 8.dp else 0.dp
         ) {
             Box(
                 modifier = Modifier
@@ -270,11 +278,12 @@ class SearchFragment : Fragment() {
 
     private fun syncBackground() {
         if (!isAdded) return
-        
+
+        val isTv = false
         // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
-        val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 && 
+        val isTabletLand = (resources.configuration.smallestScreenWidthDp >= 600 || isTv) &&
                           resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        
+
         if (isTabletLand) {
             ivFragmentBackground.visibility = View.GONE
             return

@@ -5,6 +5,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
@@ -14,6 +15,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -39,6 +43,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
+
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -55,13 +61,18 @@ class MainActivity : AppCompatActivity() {
     @OptIn(UnstableApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         val isTablet = (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE
-        if (isTablet) {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        
+        // 平板允许旋转，手机强制竖屏
+        requestedOrientation = if (isTablet) {
+            ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         } else {
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
 
         super.onCreate(savedInstanceState)
+
+        // 设置播放模式默认值
+        MediaItemUtils.isForceDirectMode = false
         
         // 沉浸式与键盘适配
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -84,23 +95,39 @@ class MainActivity : AppCompatActivity() {
 
         // 使用 Compose 构建登录页面
         setContent {
+            val ipAddress = ""
+
+            // 监听手机端发来的登录信息
+            val loginConfig by remember { mutableStateOf<Any?>(null) }
+            LaunchedEffect(loginConfig) {
+                loginConfig?.let {
+                    // loginToEmby(it.url, it.user, it.pass)
+                }
+            }
+
             LoginScreen(
-                onLogin = { server, user, pass -> loginToEmby(server, user, pass) }
+                onLogin = { server, user, pass -> loginToEmby(server, user, pass) },
+                ipAddress = ipAddress
             )
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+    }
+
     @Composable
-    fun LoginScreen(onLogin: (String, String, String) -> Unit) {
+    fun LoginScreen(onLogin: (String, String, String) -> Unit, ipAddress: String) {
         val configuration = LocalConfiguration.current
-        val isTablet = (configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE 
+        // 大屏平板且处于横屏时使用平板布局
+        val useTabletLayout = ((configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE) 
                 && configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
 
         var serverState by remember { mutableStateOf("") }
         var usernameState by remember { mutableStateOf("") }
         var passwordState by remember { mutableStateOf("") }
 
-        if (isTablet) {
+        if (useTabletLayout) {
             TabletLoginLayout(
                 server = serverState,
                 onServerChange = { serverState = it },
@@ -108,7 +135,8 @@ class MainActivity : AppCompatActivity() {
                 onUsernameChange = { usernameState = it },
                 password = passwordState,
                 onPasswordChange = { passwordState = it },
-                onLogin = { onLogin(serverState, usernameState, passwordState) }
+                onLogin = { onLogin(serverState, usernameState, passwordState) },
+                ipAddress = ipAddress
             )
         } else {
             PhoneLoginLayout(
@@ -118,7 +146,8 @@ class MainActivity : AppCompatActivity() {
                 onUsernameChange = { usernameState = it },
                 password = passwordState,
                 onPasswordChange = { passwordState = it },
-                onLogin = { onLogin(serverState, usernameState, passwordState) }
+                onLogin = { onLogin(serverState, usernameState, passwordState) },
+                ipAddress = ipAddress
             )
         }
     }
@@ -131,7 +160,8 @@ class MainActivity : AppCompatActivity() {
         onUsernameChange: (String) -> Unit,
         password: String,
         onPasswordChange: (String) -> Unit,
-        onLogin: () -> Unit
+        onLogin: () -> Unit,
+        ipAddress: String
     ) {
         val backgroundBrush = getLoginBackgroundBrush()
         val isDark = isSystemInDarkTheme()
@@ -234,7 +264,8 @@ class MainActivity : AppCompatActivity() {
         onUsernameChange: (String) -> Unit,
         password: String,
         onPasswordChange: (String) -> Unit,
-        onLogin: () -> Unit
+        onLogin: () -> Unit,
+        ipAddress: String
     ) {
         val backgroundBrush = getLoginBackgroundBrush()
         val contentColor = ComposeColor.White
@@ -380,6 +411,56 @@ class MainActivity : AppCompatActivity() {
     }
 
     @Composable
+    fun TvLoginHint(ipAddress: String) {
+        val interactionSource = remember { MutableInteractionSource() }
+        val isFocused by interactionSource.collectIsFocusedAsState()
+        
+        Surface(
+            color = ComposeColor.Black.copy(alpha = if (isFocused) 0.6f else 0.4f),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .padding(bottom = 24.dp)
+                .focusable(interactionSource = interactionSource),
+            border = BorderStroke(
+                width = if (isFocused) 4.dp else 1.dp,
+                color = if (isFocused) ComposeColor(0xFFFFD700) else ComposeColor.White.copy(alpha = 0.2f)
+            ),
+            tonalElevation = if (isFocused) 16.dp else 2.dp
+        ) {
+            Column(
+                modifier = Modifier.padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.logo),
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = ComposeColor.Unspecified
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        "电视快速登录", 
+                        color = if (isFocused) ComposeColor(0xFFFFD700) else ComposeColor.White, 
+                        fontWeight = FontWeight.Bold, 
+                        fontSize = 18.sp
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text("请在手机浏览器访问以下地址进行登录：", color = ComposeColor.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "http://$ipAddress:8080",
+                    color = ComposeColor(0xFFFFD700), // 金色
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.sp
+                )
+            }
+        }
+    }
+
+    @Composable
     fun VerticalDivider() {
         val configuration = LocalConfiguration.current
         val isTabletLandscape = (configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE 
@@ -492,31 +573,37 @@ class MainActivity : AppCompatActivity() {
         val isDark = if (isTabletLandscape) true else isSystemInDarkTheme()
         val contentColor = if (isDark) ComposeColor.White else ComposeColor.Black
 
+        val interactionSource = remember { MutableInteractionSource() }
+        val isFocused by interactionSource.collectIsFocusedAsState()
+
         Surface(
             onClick = {
                 val intent = android.content.Intent(this@MainActivity, DonationActivity::class.java)
                 startActivity(intent)
             },
-            modifier = Modifier.height(40.dp),
-            shape = RoundedCornerShape(20.dp),
-            color = contentColor.copy(alpha = 0.1f),
+            interactionSource = interactionSource,
+            modifier = Modifier
+                .height(44.dp)
+                .padding(horizontal = if (isFocused) 0.dp else 4.dp),
+            shape = RoundedCornerShape(22.dp),
+            color = if (isFocused) ComposeColor(0xFFFFD700).copy(alpha = 0.2f) else contentColor.copy(alpha = 0.1f),
             border = BorderStroke(
-                0.5.dp, 
-                contentColor.copy(alpha = 0.3f)
+                if (isFocused) 3.dp else 0.5.dp, 
+                if (isFocused) ComposeColor(0xFFFFD700) else contentColor.copy(alpha = 0.3f)
             ),
-            tonalElevation = 8.dp
+            tonalElevation = if (isFocused) 16.dp else 8.dp
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxHeight()
-                    .padding(horizontal = 32.dp),
+                    .padding(horizontal = 36.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "About Us",
-                    color = contentColor.copy(alpha = 0.7f),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium
+                    color = if (isFocused) ComposeColor(0xFFFFD700) else contentColor.copy(alpha = 0.7f),
+                    fontSize = 15.sp,
+                    fontWeight = if (isFocused) FontWeight.Bold else FontWeight.Medium
                 )
             }
         }
@@ -595,6 +682,10 @@ class MainActivity : AppCompatActivity() {
             singleLine = true
         )
     }
+
+    private fun Modifier.scaleOnFocus(isFocused: Boolean): Modifier = this.then(
+        if (isFocused) Modifier.padding(horizontal = 4.dp).height(44.dp) else Modifier
+    )
 
     private fun loginToEmby(server: String, username: String, password: String) {
         val cleanServer = if (server.endsWith("/")) server.removeSuffix("/") else server

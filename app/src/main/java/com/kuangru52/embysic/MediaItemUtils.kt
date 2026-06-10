@@ -36,6 +36,7 @@ object MediaItemUtils {
         if (name.isBlank()) {
             // 2. 尝试通过反射获取 OEM 特有的市场名称属性
             val props = arrayOf(
+                "ro.product.odm.marketname",
                 "ro.product.marketname",
                 "ro.config.marketing_name",
                 "ro.product.model.name",
@@ -49,6 +50,26 @@ object MediaItemUtils {
                     if (value.isNotBlank()) {
                         name = value
                         break
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2.5 如果仍为空，或者为系统默认名称，尝试读取 /vendor/odm/etc/build.prop
+        if (name.isBlank()) {
+            try {
+                val file = java.io.File("/vendor/odm/etc/build.prop")
+                if (file.exists() && file.canRead()) {
+                    file.useLines { lines ->
+                        for (line in lines) {
+                            if (line.startsWith("ro.product.odm.marketname=")) {
+                                val value = line.substringAfter("=").trim()
+                                if (value.isNotBlank()) {
+                                    name = value
+                                    break
+                                }
+                            }
+                        }
                     }
                 }
             } catch (_: Exception) {}
@@ -74,7 +95,8 @@ object MediaItemUtils {
         startMs: Long = 0L,
         endMs: Long = 0L,
         forceDirect: Boolean = isForceDirectMode,
-        overrideSessionId: String? = null
+        overrideSessionId: String? = null,
+        existingMetadata: MediaMetadata? = null
     ): MediaItem {
         val baseUrl = if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"
         val mediaSourceId = song.MediaSources?.firstOrNull()?.Id ?: song.Id
@@ -135,7 +157,22 @@ object MediaItemUtils {
             // 添加艺术家 ID，优先取第一个
             val artistId = song.ArtistItems?.firstOrNull()?.Id ?: song.AlbumArtists?.firstOrNull()?.Id
             putString("artist_id", artistId)
+            // 存入 image_url 供 TabletPlayerHandler 直接使用
+            putString("image_url", artworkUrl)
         }
+
+        val metadataBuilder = existingMetadata?.buildUpon() ?: MediaMetadata.Builder()
+        val metadata = metadataBuilder
+            .setTitle(song.Name)
+            .setDisplayTitle(song.Name)
+            .setArtist(song.Artists?.joinToString(", ") ?: "未知艺术家")
+            .setAlbumTitle(song.Album)
+            .setAlbumArtist(song.AlbumArtists?.firstOrNull()?.Name ?: song.Artists?.firstOrNull())
+            .setArtworkUri(Uri.parse(artworkUrl))
+            .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+            .setIsPlayable(true)
+            .setExtras(extras)
+            .build()
 
         return MediaItem.Builder()
             .setUri(Uri.parse(streamUrl))
@@ -147,19 +184,7 @@ object MediaItemUtils {
                     .apply { if (endMs > startMs) setEndPositionMs(endMs) }
                     .build()
             )
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(song.Name)
-                    .setDisplayTitle(song.Name)
-                    .setArtist(song.Artists?.joinToString(", ") ?: "未知艺术家")
-                    .setAlbumTitle(song.Album)
-                    .setAlbumArtist(song.AlbumArtists?.firstOrNull()?.Name ?: song.Artists?.firstOrNull())
-                    .setArtworkUri(Uri.parse(artworkUrl))
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                    .setIsPlayable(true)
-                    .setExtras(extras)
-                    .build()
-            )
+            .setMediaMetadata(metadata)
             .build()
     }
 

@@ -8,6 +8,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
 
+
 class ArtistAdapter(private val onItemClick: (EmbyItem) -> Unit) :
     RecyclerView.Adapter<ArtistAdapter.ViewHolder>() {
 
@@ -43,6 +44,8 @@ class ArtistAdapter(private val onItemClick: (EmbyItem) -> Unit) :
         }
 
         holder.itemView.setOnClickListener { onItemClick(item) }
+
+
     }
 
     override fun getItemCount() = items.size

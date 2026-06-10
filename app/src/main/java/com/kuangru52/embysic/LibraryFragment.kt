@@ -54,7 +54,7 @@ class LibraryFragment : Fragment() {
     private var userId = ""
     
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"2.13\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_library, container, false)
@@ -97,6 +97,10 @@ class LibraryFragment : Fragment() {
         val targetItemId = arguments?.getString("target_item_id")
 
         (activity as? HomeActivity)?.findViewById<View>(R.id.bottom_container)?.visibility = View.VISIBLE
+
+        if (false) {
+            swipeBackLayout.isEnabled = false
+        }
 
         if (targetItemId != null) {
             // 如果是从播放页跳转来的，先获取该歌曲的父级 ID
@@ -153,7 +157,7 @@ class LibraryFragment : Fragment() {
     private fun syncBackground() {
         if (!isAdded) return
         
-        val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 && 
+        val isTabletLand = (resources.configuration.smallestScreenWidthDp >= 600) &&
                           resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         
         if (isTabletLand) {

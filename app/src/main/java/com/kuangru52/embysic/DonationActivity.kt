@@ -41,11 +41,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
 
+import androidx.compose.runtime.*
+import androidx.compose.ui.draw.clip
+
 class DonationActivity : ComponentActivity() {
 
     private val aliPayCode = "a6x04287fr0sxv9zqrc0m31"
     private val telegramUrl = "https://t.me/+FFEviJJq9GkyOWFl"
     private val qqGroupId = "1027610757"
+
+    private var hasUpdate by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // 判断是否为平板
@@ -69,9 +74,40 @@ class DonationActivity : ComponentActivity() {
             statusBarColor = AndroidColor.TRANSPARENT
         }
 
+        checkUpdate()
+
         setContent {
             DonationScreen()
         }
+    }
+
+    private fun checkUpdate() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val latestRelease = RetrofitClient.githubApi.getLatestRelease()
+                val latestVersion = latestRelease.tag_name.replace("v", "")
+                val currentVersion = BuildConfig.VERSION_NAME
+                if (isNewerVersion(currentVersion, latestVersion)) {
+                    withContext(Dispatchers.Main) {
+                        hasUpdate = true
+                    }
+                }
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun isNewerVersion(current: String, latest: String): Boolean {
+        val currentParts = current.split(".").mapNotNull { it.toIntOrNull() }
+        val latestParts = latest.split(".").mapNotNull { it.toIntOrNull() }
+        val maxLength = maxOf(currentParts.size, latestParts.size)
+        for (i in 0 until maxLength) {
+            val curr = currentParts.getOrElse(i) { 0 }
+            val late = latestParts.getOrElse(i) { 0 }
+            if (late > curr) return true
+            if (curr > late) return false
+        }
+        return false
     }
 
     @Composable
@@ -213,9 +249,9 @@ class DonationActivity : ComponentActivity() {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
                         text = "https://github.com/kuangru52/embysic",
-                        color = Color(0xFF2196F3), // 使用更鲜明的 Material Blue，确保用户识别为可点击链接
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium, // 加粗一点点
+                        color = Color(0xFF2196F3), 
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
                         textDecoration = TextDecoration.Underline,
                         modifier = Modifier
                             .clickable {
@@ -223,12 +259,32 @@ class DonationActivity : ComponentActivity() {
                             }
                             .padding(4.dp)
                     )
-                    Text(
-                        text = "Embysic  ${BuildConfig.VERSION_NAME}",
-                        color = Color.White.copy(alpha = 0.4f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Light
-                    )
+                    
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "Embysic  ${BuildConfig.VERSION_NAME}",
+                            color = Color.White.copy(alpha = 0.4f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Light
+                        )
+                        
+                        if (hasUpdate) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.White.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = "可更新",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }

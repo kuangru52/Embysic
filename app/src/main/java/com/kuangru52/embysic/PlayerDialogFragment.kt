@@ -620,6 +620,12 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
         }
         override fun onMediaMetadataChanged(mediaMetadata: androidx.media3.common.MediaMetadata) {
             updateFavoriteIcon(mediaMetadata.extras?.getBoolean("is_favorite", false) ?: false)
+            // 关键：如果元数据更新，再次检查并刷新封面，覆盖初次进入 metadata 为空的缺口
+            player?.let { p ->
+                if (p.currentMediaItem?.mediaMetadata == mediaMetadata) {
+                    updateMetadata(p.currentMediaItem)
+                }
+            }
         }
     }
 
@@ -631,7 +637,13 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
             updateNeedle(it.isPlaying)
             updatePlayModeIcon()
 
-            updateMetadata(it.currentMediaItem)
+            // 关键修复：增加延迟，确保 MediaController 完全挂载并获取到 metadata
+            handler.postDelayed({
+                if (isAdded) {
+                    updateMetadata(it.currentMediaItem)
+                }
+            }, 100)
+
             updateUIProgress(it)
             handler.post(updateProgressAction)
             if (it.isPlaying && !rvLyrics.isVisible) {
@@ -714,8 +726,19 @@ class PlayerDialogFragment : BottomSheetDialogFragment() {
                     }
                 }
                 else -> {
-                    // 只有完全没封面时，才尝试提取 Tag
-                    loadCoverFromTags(itemId)
+                    // 尝试使用 Emby API 构造 URL，确保与列表一致
+                    val prefs = safeContext.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
+                    val serverUrl = prefs.getString("server_url", "")?.trimEnd('/') ?: ""
+                    val accessToken = prefs.getString("access_token", "") ?: ""
+                    val imageUrl = "$serverUrl/emby/Items/$itemId/Images/Primary?MaxWidth=800"
+                    
+                    ivCover.load(imageUrl) {
+                        crossfade(true)
+                        addHeader("Authorization", "MediaBrowser Token=\"$accessToken\"")
+                        placeholder(R.drawable.logo)
+                        error(R.drawable.logo)
+                        listener(onSuccess = { _, _ -> updateBlurBackground(imageUrl) })
+                    }
                 }
             }
 

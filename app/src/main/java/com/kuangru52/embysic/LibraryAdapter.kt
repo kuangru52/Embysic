@@ -16,6 +16,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import coil.dispose
 import coil.load
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -268,9 +269,12 @@ class LibraryAdapter(
                     itemContainer.setBackgroundResource(R.drawable.bg_compact_card)
                 }
 
-                // 恢复普通项的点击属性
-                itemView.isClickable = true
-                itemView.isFocusable = true
+            // 恢复普通项的点击属性
+                itemView.isClickable = false
+                itemView.isFocusable = false
+                itemContainer.isClickable = true
+                itemContainer.isFocusable = true
+
                 
                 if (isPlayingThis) {
                     tvIndex.visibility = View.VISIBLE
@@ -401,7 +405,7 @@ class LibraryAdapter(
                     }
                 }
             }
-            itemView.setOnClickListener {
+            itemContainer.setOnClickListener {
                 if (item.Id == "BACK_FOLDER") return@setOnClickListener
                 
                 if (isSelectionMode) {
@@ -426,7 +430,7 @@ class LibraryAdapter(
                 lastClickTime = currentTime
             }
 
-            itemView.setOnLongClickListener {
+            itemContainer.setOnLongClickListener {
                 if (item.Id == "BACK_FOLDER" || onItemDelete == null) return@setOnLongClickListener true
                 
                 val prev = expandedDeletePosition

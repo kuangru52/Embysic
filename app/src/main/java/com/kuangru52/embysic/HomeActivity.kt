@@ -84,10 +84,10 @@ class HomeActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 判断是否为平板
         isTablet = (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE
+        
         requestedOrientation = if (isTablet) {
-            // 平板：默认横屏，但允许旋转
+            // 平板：默认横屏，但允许跟随传感器旋转
             ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         } else {
             // 手机：强制竖屏
@@ -103,15 +103,7 @@ class HomeActivity : AppCompatActivity() {
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main_root)) { v, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            val displayCutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            val topInset = maxOf(systemBars.top, displayCutout.top)
-            
             v.setPadding(systemBars.left, 0, systemBars.right, 0)
-
-            if (isTablet) {
-                findViewById<View>(R.id.statusBarSpacer)?.layoutParams?.height = topInset
-            }
-            
             insets
         }
 
@@ -180,35 +172,36 @@ class HomeActivity : AppCompatActivity() {
                 controller.shuffleModeEnabled = false
             }
 
-            findViewById<ComposeView>(R.id.bottom_container).setContent {
-                // 关键修复：直接在 setContent 内部读取 selectedTab，确保 Compose 追踪其变化
-                BottomTabs(
-                    controller = controller,
-                    selectedTab = selectedTab, 
-                    onPlayerClick = { 
-                        if (isTablet && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                            // 平板横屏下，如果需要切换到播放器逻辑，可以在此处理，但目前需求是不弹出界面
-                        } else {
-                            showPlayer()
-                        }
-                    },
-                    onNavigation = { tab ->
-                        if (selectedTab != tab) {
-                            selectedTab = tab
-                            // 切换标签时，清理滤镜并立即刷新
-                            lastAppliedDockRect = null
-                            refreshSystemEffect()
-                            
-                            when (tab) {
-                                "Recent" -> replaceFragment(RecentFragment())
-                                "Favorite" -> replaceFragment(FavoriteFragment())
-                                "Library" -> replaceFragment(LibraryFragment())
-                                "Search" -> replaceFragment(SearchFragment())
+            findViewById<ComposeView>(R.id.bottom_container)?.let { composeView ->
+                composeView.setContent {
+                    BottomTabs(
+                        controller = controller,
+                        selectedTab = selectedTab, 
+                        onPlayerClick = { 
+                            if (isTablet && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                                // 平板横屏下，如果需要切换到播放器逻辑，可以在此处理，但目前需求是不弹出界面
+                            } else {
+                                showPlayer()
                             }
-                        }
-                    },
-                    onLibraryScan = { scanLibrary() }
-                )
+                        },
+                        onNavigation = { tab ->
+                            if (selectedTab != tab) {
+                                selectedTab = tab
+                                // 切换标签时，清理滤镜并立即刷新
+                                lastAppliedDockRect = null
+                                refreshSystemEffect()
+                                
+                                when (tab) {
+                                    "Recent" -> replaceFragment(RecentFragment())
+                                    "Favorite" -> replaceFragment(FavoriteFragment())
+                                    "Library" -> replaceFragment(LibraryFragment())
+                                    "Search" -> replaceFragment(SearchFragment())
+                                }
+                            }
+                        },
+                        onLibraryScan = { scanLibrary() }
+                    )
+                }
             }
             if (isTablet) {
                 tabletPlayerHandler = TabletPlayerHandler(this, controller)
@@ -338,8 +331,8 @@ class HomeActivity : AppCompatActivity() {
     fun updateBackground(item: MediaItem?) {
         val ivBlurBackground = findViewById<ImageView>(R.id.ivBlurBackground) ?: return
         
-        // 如果是手机模式（非平板），固定使用 bg_superman 的模糊版
-        // 如果是平板模式，可以继续保留随歌曲切换背景的特性（或者也统一固定，根据你的喜好）
+        // 如果是手机模式，固定使用 bg_superman 的模糊版
+        // 如果是平板模式，可以继续保留随歌曲切换背景的特性
         val backgroundData = if (isTablet) {
             val metadata = item?.mediaMetadata
             val mediaId = item?.mediaId

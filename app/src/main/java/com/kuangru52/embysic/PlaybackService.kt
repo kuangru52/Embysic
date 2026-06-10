@@ -27,15 +27,12 @@ class PlaybackService : MediaSessionService() {
     private lateinit var cacheDataSourceFactory: CacheDataSource.Factory
     private var embyApi: EmbyApiService? = null
     private lateinit var neteaseApi: NeteaseApiService
-    private lateinit var discogsApi: DiscogsApiService
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     
     private val neteasePrefs by lazy { getSharedPreferences("netease_covers", MODE_PRIVATE) }
     private val imageLoader by lazy { ImageLoader(this) }
     private var currentArtworkBitmap: Bitmap? = null
     
-    private val discogsToken = "" 
-
     private var lastReportedItemId: String? = null
     private var currentItemExtras: Bundle? = null
     private var lastKnownPositionMs: Long = 0
@@ -54,7 +51,6 @@ class PlaybackService : MediaSessionService() {
 
         embyApi = RetrofitClient.getEmbyApiService(this)
         neteaseApi = RetrofitClient.neteaseApi
-        discogsApi = RetrofitClient.discogsApi
 
         exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
@@ -171,15 +167,7 @@ class PlaybackService : MediaSessionService() {
             } catch (_: Exception) {}
 
             if (album.isNotEmpty()) {
-                try {
-                    val auth = if (discogsToken.isNotEmpty()) "Token $discogsToken" else ""
-                    val discogsRes = discogsApi.searchRelease(album, artist, auth = auth)
-                    val match = discogsRes.results?.firstOrNull()
-                    val picUrl = match?.cover_image ?: match?.thumb
-                    if (picUrl != null) {
-                        downloadAndCache(picUrl, baseId)
-                    }
-                } catch (_: Exception) {}
+                // 已移除 Discogs 调用，不再尝试从 Discogs 获取封面
             }
         }
     }
@@ -231,7 +219,6 @@ class PlaybackService : MediaSessionService() {
 
         val currentIndex = exoPlayer.currentMediaItemIndex
         exoPlayer.replaceMediaItem(currentIndex, newItem)
-        mediaSession?.setCustomLayout(emptyList())
     }
 
     private fun getBaseMediaId(id: String): String = id.split("_").first()

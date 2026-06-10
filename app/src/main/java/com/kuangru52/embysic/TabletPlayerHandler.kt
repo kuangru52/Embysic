@@ -114,7 +114,22 @@ class TabletPlayerHandler(
         setupListeners()
         
         controller.addListener(playerListener)
-        updateMetadata(controller.currentMediaItem)
+        
+        // 核心修复：确保从列表页点击进入时，Metadata 能够被及时同步到旋转唱片
+        if (controller.currentMediaItem != null) {
+            updateMetadata(controller.currentMediaItem)
+        } else {
+            // 如果第一次进入时 MediaItem 还未 ready，注册一个一次性监听器等待 Item 准备就绪
+            controller.addListener(object : Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    if (mediaItem != null) {
+                        updateMetadata(mediaItem)
+                        controller.removeListener(this)
+                    }
+                }
+            })
+        }
+
         updatePlayModeIcon()
         handler.post(updateProgressAction)
         if (controller.isPlaying) handler.post(discRotationRunnable)
@@ -127,6 +142,8 @@ class TabletPlayerHandler(
         val layoutManager = LinearLayoutManager(activity)
         rvLyricsRight?.layoutManager = layoutManager
         rvLyricsRight?.adapter = lyricsAdapter
+        
+
         
         rvLyricsRight?.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             private val resumeRunnable = Runnable { rvLyricsRight?.setTag(R.id.bottom_container, false) }
@@ -147,8 +164,7 @@ class TabletPlayerHandler(
             if (controller.isPlaying) controller.pause() else controller.play()
         }
         btnPrev?.setOnClickListener { 
-            controller.seekToPrevious() 
-            controller.play()
+            controller.seekToPrevious()
         }
         btnNext?.setOnClickListener { 
             controller.seekToNext() 
@@ -177,8 +193,7 @@ class TabletPlayerHandler(
         }
         
         val root = activity.findViewById<View>(R.id.main_root)
-        val llTitleContainer = root?.findViewById<View>(R.id.llTitleContainer)
-        llTitleContainer?.setOnClickListener {
+        tvTitle?.setOnClickListener {
             val mediaId = controller.currentMediaItem?.mediaId ?: return@setOnClickListener
             (activity as? HomeActivity)?.let { activity ->
                 val fragment = LibraryFragment().apply {
@@ -196,6 +211,8 @@ class TabletPlayerHandler(
 
         setupVolumeTouch()
         setupQualityClick()
+
+
         
         seekBar?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
@@ -213,6 +230,15 @@ class TabletPlayerHandler(
 
     private val playerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            // 彻底防止音质切换 (Playlist 变更但歌曲未变) 导致封面被清空或抖动
+            val currentMediaId = controller.currentMediaItem?.mediaId?.split("_")?.firstOrNull()
+            val incomingMediaId = mediaItem?.mediaId?.split("_")?.firstOrNull()
+            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && currentMediaId == incomingMediaId) {
+                // 如果是同一个歌曲更新（如音质转码），绝不重置全部元数据与封面！
+                // 仅更新音质标签、收藏状态即可
+                mediaItem?.let { updateAudioQuality(it) }
+                return
+            }
             updateMetadata(mediaItem)
         }
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -274,30 +300,27 @@ class TabletPlayerHandler(
         seekBar?.thumbTintList = android.content.res.ColorStateList.valueOf(textColorPrimary)
         
         val mediaId = item.mediaId
-        val artworkUri = metadata.artworkUri
+        val itemId = mediaId.split("_").first()
+        
+        val prefs = activity.getSharedPreferences("embysic_prefs", Context.MODE_PRIVATE)
+        val serverUrl = prefs.getString("server_url", "")?.trimEnd('/') ?: ""
+        val accessToken = prefs.getString("access_token", "") ?: ""
+        
+        // 显式构造 Emby 图片请求 URL
+        val imageUrl = "$serverUrl/emby/Items/$itemId/Images/Primary?MaxWidth=800"
 
-        // 封面加载策略
-        val coverFile = java.io.File(activity.cacheDir, "covers/${mediaId}.jpg")
-        if (coverFile.exists()) {
-            ivAlbumArt?.load(coverFile) {
-                crossfade(600)
-                placeholder(R.drawable.disk)
-                listener(onSuccess = { _, _ -> updateBlurBackground(coverFile) })
-            }
-        } else {
-            ivAlbumArt?.load(artworkUri) {
-                crossfade(600)
-                placeholder(R.drawable.disk)
-                error(R.drawable.disk)
-                listener(
-                    onSuccess = { _, _ -> updateBlurBackground(artworkUri) },
-                    onError = { _, _ -> syncNeteaseData(item) }
-                )
-            }
+        // 加载封面，强制携带认证 Header
+        ivAlbumArt?.load(imageUrl) {
+            crossfade(600)
+            placeholder(R.drawable.disk)
+            error(R.drawable.disk)
+            addHeader("Authorization", "MediaBrowser Token=\"$accessToken\"")
         }
+        
+        // 只有在明确没有其他可用图片时，再尝试同步网易云
+        syncNeteaseData(item)
 
-        val extras = metadata.extras
-        updateFavoriteIcon(extras?.getBoolean("is_favorite", false) ?: false)
+        updateFavoriteIcon(metadata.extras?.getBoolean("is_favorite", false) ?: false)
         updateAudioQuality(item)
         
         // 加载歌词
@@ -317,7 +340,7 @@ class TabletPlayerHandler(
         if (cached != null) {
             lyricsAdapter?.lines = cached
         } else {
-            val embeddedLyrics = extras?.getString("lyrics")
+            val embeddedLyrics = metadata.extras?.getString("lyrics")
             if (!embeddedLyrics.isNullOrBlank()) {
                 val lines = LrcParser.parse(embeddedLyrics)
                 if (lines.isNotEmpty()) {
@@ -408,12 +431,39 @@ class TabletPlayerHandler(
                         val accessToken = prefs.getString("access_token", "") ?: ""
                         val userId = prefs.getString("user_id", "") ?: ""
                         val embyItem = service.getItem(userId, itemId, "MediaBrowser Token=\"$accessToken\"")
-                        val newItem = MediaItemUtils.buildMediaItem(activity, embyItem, serverUrl, accessToken, userId, forceDirect = MediaItemUtils.isForceDirectMode)
+                        val newItem = MediaItemUtils.buildMediaItem(
+                            activity, 
+                            embyItem, 
+                            serverUrl, 
+                            accessToken, 
+                            userId, 
+                            forceDirect = MediaItemUtils.isForceDirectMode,
+                            existingMetadata = currentItem.mediaMetadata
+                        )
                         controller.setMediaItem(newItem)
                         controller.seekTo(currentPos)
                         controller.prepare()
                         controller.play()
-                        updateMetadata(newItem)
+                        
+                        // 彻底避免触发 updateMetadata，仅同步关键状态
+                        val metadata = newItem.mediaMetadata
+                        tvTitle?.text = metadata.title ?: "Unknown"
+                        tvArtist?.text = (metadata.artist ?: "Unknown Artist").toString()
+                        updateAudioQuality(newItem)
+                        updateFavoriteIcon(metadata.extras?.getBoolean("is_favorite", false) ?: false)
+                        
+                        // 强制显式刷新一下封面，确保它读取的是最新的 newItem
+                        val currentTag = ivAlbumArt?.getTag(R.id.ivAlbumArt)
+                        val imageUrl = newItem.mediaMetadata.extras?.getString("image_url")
+                        if (!imageUrl.isNullOrEmpty() && currentTag != imageUrl) {
+                            ivAlbumArt?.load(Uri.parse(imageUrl)) {
+                                crossfade(600)
+                                listener(onSuccess = { _, _ -> 
+                                    ivAlbumArt?.setTag(R.id.ivAlbumArt, imageUrl) 
+                                    updateBlurBackground(Uri.parse(imageUrl))
+                                })
+                            }
+                        }
                     } catch (e: Exception) { e.printStackTrace() }
                 }
             }

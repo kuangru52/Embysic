@@ -41,7 +41,7 @@ class ArtistFragment : Fragment() {
     private var userId = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"2.13\", Token=\"$accessToken\""
+        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val view = inflater.inflate(R.layout.fragment_artist, container, false)
@@ -88,11 +88,11 @@ class ArtistFragment : Fragment() {
 
     private fun syncBackground() {
         if (!isAdded) return
-        
+
         // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
-        val isTabletLand = resources.configuration.smallestScreenWidthDp >= 600 && 
+        val isTabletLand = (resources.configuration.smallestScreenWidthDp >= 600) &&
                           resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        
+
         if (isTabletLand) {
             ivFragmentBackground.visibility = View.GONE
             return

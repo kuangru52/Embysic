@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Color
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.View
 import android.widget.ImageView
 import android.widget.SeekBar
@@ -17,10 +16,8 @@ import androidx.media3.session.MediaController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import coil.load
-import jp.wasabeef.transformers.coil.BlurTransformation
 import androidx.core.content.edit
-import kotlinx.coroutines.withContext
-import android.net.Uri
+import androidx.core.net.toUri
 
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -29,7 +26,7 @@ import java.util.Locale
 @androidx.media3.common.util.UnstableApi
 class TabletPlayerHandler(
     private val activity: AppCompatActivity,
-    private val controller: MediaController
+    private val controller: MediaController,
 ) {
     private var tvTitle: TextView? = null
     private var tvArtist: TextView? = null
@@ -46,7 +43,6 @@ class TabletPlayerHandler(
     private var tvCurrentTime: TextView? = null
     private var tvTotalTime: TextView? = null
     private var rvLyrics: RecyclerView? = null
-    private var rvLyricsRight: RecyclerView? = null
     private var tvPlayModeHint: TextView? = null
     private var tvAudioQuality: TextView? = null
     private var pbDownload: android.widget.ProgressBar? = null
@@ -55,7 +51,6 @@ class TabletPlayerHandler(
     private var sbVolumeHint: SeekBar? = null
     private var llVolumeHint: View? = null
     private var heartLayout: HeartLayout? = null
-    private var vBackgroundScrim: View? = null
 
     private var lyricsAdapter: LyricsAdapter? = null
     private val handler = Handler(Looper.getMainLooper())
@@ -97,7 +92,6 @@ class TabletPlayerHandler(
         tvCurrentTime = root.findViewById(R.id.tvCurrentTime)
         tvTotalTime = root.findViewById(R.id.tvTotalTime)
         rvLyrics = root.findViewById(R.id.rvLyrics)
-        rvLyricsRight = root.findViewById(R.id.rvLyricsRight)
         tvPlayModeHint = root.findViewById(R.id.tvPlayModeHint)
         tvAudioQuality = root.findViewById(R.id.tvAudioQuality)
         pbDownload = root.findViewById(R.id.pbDownload)
@@ -106,7 +100,6 @@ class TabletPlayerHandler(
         sbVolumeHint = root.findViewById(R.id.sbVolumeHint)
         llVolumeHint = root.findViewById(R.id.llVolumeHint)
         heartLayout = root.findViewById(R.id.heartLayout)
-        vBackgroundScrim = root.findViewById(R.id.vBackgroundScrim)
 
         ivNeedle?.rotation = -35f
 
@@ -120,14 +113,16 @@ class TabletPlayerHandler(
             updateMetadata(controller.currentMediaItem)
         } else {
             // 如果第一次进入时 MediaItem 还未 ready，注册一个一次性监听器等待 Item 准备就绪
-            controller.addListener(object : Player.Listener {
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    if (mediaItem != null) {
-                        updateMetadata(mediaItem)
-                        controller.removeListener(this)
+            controller.addListener(
+                object : Player.Listener {
+                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                        if (mediaItem != null) {
+                            updateMetadata(mediaItem)
+                            controller.removeListener(this)
+                        }
                     }
-                }
-            })
+                },
+            )
         }
 
         updatePlayModeIcon()
@@ -139,23 +134,21 @@ class TabletPlayerHandler(
         lyricsAdapter = LyricsAdapter(
             onItemClick = {
                 // 平板模式下点击歌词暂无特定动作
-            },
-            onSeekTo = { time ->
-                controller.seekTo(time)
             }
-        )
+        ) { time ->
+            controller.seekTo(time)
+        }
         val layoutManager = LinearLayoutManager(activity)
-        rvLyricsRight?.layoutManager = layoutManager
-        rvLyricsRight?.adapter = lyricsAdapter
+        rvLyrics?.layoutManager = layoutManager
+        rvLyrics?.adapter = lyricsAdapter
         
-
-        
-        rvLyricsRight?.addOnScrollListener(object : RecyclerView.OnScrollListener() {
-            private val resumeRunnable = Runnable { rvLyricsRight?.setTag(R.id.bottom_container, false) }
+        rvLyrics?.addOnScrollListener(
+            object : RecyclerView.OnScrollListener() {
+                private val resumeRunnable = Runnable { rvLyrics?.setTag(R.id.bottom_container, false) }
 
             override fun onScrollStateChanged(recyclerView: RecyclerView, newState: Int) {
                 if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
-                    rvLyricsRight?.setTag(R.id.bottom_container, true)
+                    rvLyrics?.setTag(R.id.bottom_container, true)
                     handler.removeCallbacks(resumeRunnable)
                 } else if (newState == RecyclerView.SCROLL_STATE_IDLE) {
                     handler.postDelayed(resumeRunnable, 3000)
@@ -197,7 +190,6 @@ class TabletPlayerHandler(
             }
         }
         
-        val root = activity.findViewById<View>(R.id.main_root)
         tvTitle?.setOnClickListener {
             val mediaId = controller.currentMediaItem?.mediaId ?: return@setOnClickListener
             (activity as? HomeActivity)?.let { activity ->
@@ -226,8 +218,7 @@ class TabletPlayerHandler(
             override fun onStartTrackingTouch(s: SeekBar?) {}
             override fun onStopTrackingTouch(s: SeekBar?) {
                 s?.let { 
-                    controller.seekTo(it.progress.toLong())
-                    controller.play()
+                    MediaItemUtils.seekToPosition(controller, it.progress.toLong())
                 }
             }
         })
@@ -238,7 +229,7 @@ class TabletPlayerHandler(
             // 彻底防止音质切换 (Playlist 变更但歌曲未变) 导致封面被清空或抖动
             val currentMediaId = controller.currentMediaItem?.mediaId?.split("_")?.firstOrNull()
             val incomingMediaId = mediaItem?.mediaId?.split("_")?.firstOrNull()
-            if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED && currentMediaId == incomingMediaId) {
+            if ((reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED) && (currentMediaId == incomingMediaId)) {
                 // 如果是同一个歌曲更新（如音质转码），绝不重置全部元数据与封面！
                 // 仅更新音质标签、收藏状态即可
                 mediaItem?.let { updateAudioQuality(it) }
@@ -261,7 +252,6 @@ class TabletPlayerHandler(
     private fun updateMetadata(item: MediaItem?) {
         val isDark = (activity as? HomeActivity)?.isDarkForce() ?: true
         (activity as? HomeActivity)?.updateBackground(item)
-        vBackgroundScrim?.setBackgroundColor(if (isDark) 0x33000000 else 0x1A000000)
         
         if (item == null) {
             tvTitle?.text = activity.getString(R.string.not_playing)
@@ -338,27 +328,56 @@ class TabletPlayerHandler(
                     val diskLines: List<LrcLine> = com.google.gson.Gson().fromJson(cachedJson, type)
                     LyricUtils.lyricsCache[mediaId] = diskLines
                     diskLines
-                } catch (e: Exception) { null }
+                } catch (_: Exception) { null }
             } else null
         }
 
         if (cached != null) {
             lyricsAdapter?.lines = cached
         } else {
-            val embeddedLyrics = metadata.extras?.getString("lyrics")
-            if (!embeddedLyrics.isNullOrBlank()) {
-                val lines = LrcParser.parse(embeddedLyrics)
-                if (lines.isNotEmpty()) {
-                    LyricUtils.lyricsCache[mediaId] = lines
-                    lyricsAdapter?.lines = lines
-                } else {
-                    lyricsAdapter?.lines = emptyList()
-                    syncNeteaseData(item)
+            fetchEmbyLyricsThenFallback(item)
+        }
+    }
+
+    private fun fetchEmbyLyricsThenFallback(item: MediaItem) {
+        val mediaId = item.mediaId
+        val itemId = mediaId.split("_").first()
+        val metadata = item.mediaMetadata
+        
+        val service = RetrofitClient.getEmbyApiService(activity) ?: return
+        val prefs = activity.getSharedPreferences("embysic_prefs", Context.MODE_PRIVATE)
+        val accessToken = prefs.getString("access_token", "") ?: ""
+        val authHeader = "MediaBrowser Token=\"$accessToken\""
+
+        activity.lifecycleScope.launch {
+            try {
+                // 优先精准调用 Emby 官方歌词接口 (GET /emby/Items/{itemId}/Lyrics)
+                val response = service.getLyrics(itemId, authHeader)
+                val rawLines = response.Lines ?: response.Lyrics ?: response.LyricLines
+                @Suppress("UNCHECKED_CAST")
+                val actualLines = rawLines as? List<LyricLine>
+                if (!actualLines.isNullOrEmpty()) {
+                    val title = metadata.title?.toString() ?: "未知曲名"
+                    val artist = metadata.artist?.toString() ?: "未知歌手"
+                    val headerLines = listOf(LrcLine(-1, title), LrcLine(-1, artist))
+                    val lyrics = actualLines.asSequence().map { 
+                        LrcLine(it.StartTicks?.let { t -> t / 10000 } ?: it.Start?.let { t -> (t * 1000).toLong() } ?: 0L, it.Text ?: "") 
+                    }.filter { it.text.isNotBlank() }.sortedBy { it.timeMs }.toList()
+                    
+                    val finalLines = headerLines + lyrics
+                    LyricUtils.lyricsCache[mediaId] = finalLines
+                    activity.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE).edit {
+                        putString(mediaId, com.google.gson.Gson().toJson(finalLines))
+                    }
+                    if (controller.currentMediaItem?.mediaId == mediaId) {
+                        lyricsAdapter?.lines = finalLines
+                    }
+                    return@launch
                 }
-            } else {
-                lyricsAdapter?.lines = emptyList()
-                syncNeteaseData(item)
-            }
+            } catch (_: Exception) {}
+
+            // 若 Emby 服务端无内置歌词，降级抓取网易云歌词
+            syncNeteaseData(item)
         }
     }
 
@@ -388,7 +407,7 @@ class TabletPlayerHandler(
                     if (controller.currentMediaItem?.mediaId == mediaId) {
                         lyricsAdapter?.lines = lines
                     }
-                }
+                },
             )
         }
     }
@@ -397,7 +416,6 @@ class TabletPlayerHandler(
         if (source == null) return
         (activity as? HomeActivity)?.findViewById<ImageView>(R.id.ivBlurBackground)?.load(source) {
             crossfade(600)
-            transformations(BlurTransformation(activity, 25, 3))
         }
     }
 
@@ -420,7 +438,7 @@ class TabletPlayerHandler(
         var lastClickTime = 0L
         tvAudioQuality?.setOnClickListener {
             val currentTime = System.currentTimeMillis()
-            if (currentTime - lastClickTime < 500) qualityClickCount++ else qualityClickCount = 1
+            if ((currentTime - lastClickTime) < 500) qualityClickCount++ else qualityClickCount = 1
             lastClickTime = currentTime
             if (qualityClickCount >= 5) {
                 qualityClickCount = 0
@@ -460,12 +478,12 @@ class TabletPlayerHandler(
                         // 强制显式刷新一下封面，确保它读取的是最新的 newItem
                         val currentTag = ivAlbumArt?.getTag(R.id.ivAlbumArt)
                         val imageUrl = newItem.mediaMetadata.extras?.getString("image_url")
-                        if (!imageUrl.isNullOrEmpty() && currentTag != imageUrl) {
-                            ivAlbumArt?.load(Uri.parse(imageUrl)) {
+                        if ((!imageUrl.isNullOrEmpty()) && (currentTag != imageUrl)) {
+                            ivAlbumArt?.load(imageUrl.toUri()) {
                                 crossfade(600)
                                 listener(onSuccess = { _, _ -> 
                                     ivAlbumArt?.setTag(R.id.ivAlbumArt, imageUrl) 
-                                    updateBlurBackground(Uri.parse(imageUrl))
+                                    updateBlurBackground(imageUrl.toUri())
                                 })
                             }
                         }
@@ -480,7 +498,7 @@ class TabletPlayerHandler(
         var startX = 0f
         var startVolume = 0
         bottomTouchArea?.setOnTouchListener { v, event ->
-            val audioManager = activity.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager ?: return@setOnTouchListener false
+            val audioManager = (activity.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager) ?: return@setOnTouchListener false
             val maxVolume = audioManager.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC)
             val currentVolume = audioManager.getStreamVolume(android.media.AudioManager.STREAM_MUSIC)
             when (event.action) {
@@ -492,22 +510,22 @@ class TabletPlayerHandler(
                     handler.removeCallbacks(hideVolumeHintRunnable)
                     llVolumeHint?.alpha = 1f
                     llVolumeHint?.visibility = View.VISIBLE
-                    volumeDotView?.setTouchPosition(event.x, event.y, true)
+                    volumeDotView?.setTouchPosition(event.x, pressed = true)
                     volumeDotView?.animate()?.alpha(1f)?.setDuration(200)?.start()
                     true
                 }
                 android.view.MotionEvent.ACTION_MOVE -> {
                     val deltaX = event.x - startX
                     val sensitivityWidth = v.width / 3f
-                    val targetVolume = (startVolume + (deltaX / sensitivityWidth * maxVolume).toInt()).coerceIn(0, maxVolume)
+                    val targetVolume = (startVolume + ((deltaX / sensitivityWidth) * maxVolume).toInt()).coerceIn(0, maxVolume)
                     audioManager.setStreamVolume(android.media.AudioManager.STREAM_MUSIC, targetVolume, 0)
                     sbVolumeHint?.progress = targetVolume
-                    volumeDotView?.setTouchPosition(event.x, event.y, true)
+                    volumeDotView?.setTouchPosition(event.x, pressed = true)
                     true
                 }
                 android.view.MotionEvent.ACTION_UP, android.view.MotionEvent.ACTION_CANCEL -> {
                     handler.postDelayed(hideVolumeHintRunnable, 2000)
-                    volumeDotView?.setTouchPosition(event.x, event.y, false)
+                    volumeDotView?.setTouchPosition(event.x, pressed = false)
                     volumeDotView?.animate()?.alpha(0f)?.setDuration(200)?.start()
                     true
                 }
@@ -524,10 +542,10 @@ class TabletPlayerHandler(
             seekBar?.progress = current.toInt()
             tvTotalTime?.text = formatTime(duration)
             tvCurrentTime?.text = formatTime(current)
-            val isUserScrolling = (rvLyricsRight?.getTag(R.id.bottom_container) as? Boolean) ?: false
+            val isUserScrolling = (rvLyrics?.getTag(R.id.bottom_container) as? Boolean) ?: false
             lyricsAdapter?.updateActiveLine(current)?.let { index ->
-                if (index != -1 && !isUserScrolling) {
-                    (rvLyricsRight?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyricsRight?.height ?: 0) / 4)
+                if ((index != -1) && !isUserScrolling) {
+                    (rvLyrics?.layoutManager as? LinearLayoutManager)?.scrollToPositionWithOffset(index, (rvLyrics?.height ?: 0) / 4)
                 }
             }
         }
@@ -618,8 +636,8 @@ class TabletPlayerHandler(
                 // Calculate position for animation before potential UI changes
                 val loc = IntArray(2)
                 btnMore?.getLocationInWindow(loc)
-                val centerX = loc[0] + (btnMore?.width ?: 0) / 2f
-                val centerY = loc[1] + (btnMore?.height ?: 0) / 2f
+                val centerX = loc[0] + ((btnMore?.width ?: 0) / 2f)
+                val centerY = loc[1] + ((btnMore?.height ?: 0) / 2f)
 
                 if (isFavorite) {
                     service.unmarkFavorite(userId, itemId, authHeader)

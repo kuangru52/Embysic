@@ -1,28 +1,39 @@
+@file:Suppress("UnstableApiUsage", "OPT_IN_IS_NOT_ENABLED")
+
 package com.kuangru52.embysic
 
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
-import android.graphics.RectF
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.os.Build
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
-import android.util.TypedValue
 import android.view.View
+import androidx.compose.ui.platform.ComposeView
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.annotation.OptIn
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.edit
 import androidx.core.net.toUri
-import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
@@ -31,9 +42,13 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import coil.load
+import jp.wasabeef.transformers.coil.BlurTransformation
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
-import kotlinx.coroutines.CoroutineScope
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import androidx.core.graphics.drawable.toDrawable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,116 +56,329 @@ import kotlinx.coroutines.withContext
 @UnstableApi
 class HomeActivity : AppCompatActivity() {
     private var controllerFuture: ListenableFuture<MediaController>? = null
-    var mediaController: MediaController? = null
+    var mediaController: MediaController? by mutableStateOf(null)
         private set
 
     private var selectedTab by mutableStateOf("Recent")
     private var lastBackTime: Long = 0
     private var apiService: EmbyApiService? = null
-    private val activityScope = CoroutineScope(Dispatchers.Main)
-    private val handler = Handler(Looper.getMainLooper())
 
     private var isPlayerShown = false
-    private var lastAppliedDockRect: RectF? = null
-    private var lastAppliedDialogRect: RectF? = null
-    private var lastAppliedIsDark: Boolean? = null
 
-    // 完美比例的玻璃参数
-    private var dockRect: RectF? = null
-    private var dialogRect: RectF? = null
-    private var dialogRadius: Float = 38f
-    private val glassRadius = 38f
-    private val glassAmount = -60f
-    private val glassHeight = 20f
-    private val glassBlur = 10f
+    var tuningTarget by mutableStateOf("dock")
+    var homeBackdrop: LayerBackdrop? by mutableStateOf(null)
+    var themeMode by mutableStateOf("system")
+    var appLanguage by mutableStateOf("system")
+    var isDevMode by mutableStateOf(value = false)
+    var previousTabBeforeSettings: String = "Recent"
+
+    // 全局壁纸模糊度 (100% 独立，绝不混淆或影响底栏 glassBlurRadius)
+    var wallpaperBlurRadius by mutableFloatStateOf(18f)
+
+    // 底栏专属 3D 玻璃参数
+    var glassCornerRadius by mutableFloatStateOf(38f)
+    var glassBlurRadius by mutableFloatStateOf(18f)
+    var glassRefractionAmount by mutableFloatStateOf(-60f)
+    var glassRefractionHeight by mutableFloatStateOf(12f)
+    var glassBleedAmount by mutableFloatStateOf(10f)
+    var glassBleedOpacity by mutableFloatStateOf(0.3f)
+    var glassChromaMultiplier by mutableFloatStateOf(1.5f)
+    var glassContrast by mutableFloatStateOf(0.15f)
+    var glassWhitePoint by mutableFloatStateOf(0.20f)
+
+    // 搜索框专属参数
+    var searchCornerRadius by mutableFloatStateOf(26f)
+    var searchBlurRadius by mutableFloatStateOf(18f)
+    var searchRefractionAmount by mutableFloatStateOf(-60f)
+    var searchRefractionHeight by mutableFloatStateOf(12f)
+    var searchBleedAmount by mutableFloatStateOf(10f)
+    var searchBleedOpacity by mutableFloatStateOf(0.3f)
+    var searchChromaMultiplier by mutableFloatStateOf(1.5f)
+    var searchContrast by mutableFloatStateOf(0.15f)
+    var searchWhitePoint by mutableFloatStateOf(0.20f)
+
+    var showGlassTuningDialog by mutableStateOf(value = false)
+
+    val authHeader: String
+        get() {
+            val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+            val accessToken = prefs.getString("access_token", "") ?: ""
+            return "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(this)}\", DeviceId=\"${MediaItemUtils.getDeviceId(this)}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
+        }
 
     private var isTablet: Boolean = false
     private var tabletPlayerHandler: TabletPlayerHandler? = null
     var isSwipingBack: Boolean = false
 
-    fun isDarkForce(): Boolean {
-        val isTabletLandscape = isTablet && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val systemIsDark = (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
-        return isTabletLandscape || systemIsDark
+    fun isDarkForce(): Boolean = true
+
+    private val recentFragment by lazy { RecentFragment() }
+    private val favoriteFragment by lazy { FavoriteFragment() }
+    private val libraryFragment by lazy { LibraryFragment() }
+    private val searchFragment by lazy { SearchFragment() }
+
+    fun switchTab(tabTag: String) {
+        selectedTab = tabTag
+        
+        val container = findViewById<FrameLayout>(R.id.fragment_container) ?: return
+        if (supportFragmentManager.backStackEntryCount > 0) {
+            supportFragmentManager.popBackStackImmediate(null, androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE)
+        }
+
+        val targetFragment = when (tabTag) {
+            "Recent" -> recentFragment
+            "Favorite" -> favoriteFragment
+            "Library" -> libraryFragment
+            "Search" -> searchFragment
+            else -> recentFragment
+        }
+
+        val transaction = supportFragmentManager.beginTransaction()
+        transaction.replace(container.id, targetFragment, tabTag)
+        transaction.commitAllowingStateLoss()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         if (intent.getBooleanExtra("show_player", false)) {
-            // 如果已经在首页，点击通知栏跳转到播放页
             showPlayer()
         }
     }
 
+    @OptIn(UnstableApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         isTablet = (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE
         
         requestedOrientation = if (isTablet) {
-            // 平板：默认横屏，但允许跟随传感器旋转
             ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         } else {
-            // 手机：强制竖屏
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
 
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContentView(R.layout.activity_home)
-
-        // 沉浸式处理：让背景容器占满全屏，底栏悬浮
-        findViewById<ImageView>(R.id.ivBlurBackground)?.setImageResource(R.drawable.bg_superman)
-
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main_root)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, 0, systemBars.right, 0)
-            insets
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.decorView.isForceDarkAllowed = false
         }
+
+        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+        val savedTab = savedInstanceState?.getString("selected_tab") ?: prefs.getString("last_active_tab", "Recent") ?: "Recent"
+        selectedTab = savedTab
+
+        themeMode = prefs.getString("app_theme_mode", "system") ?: "system"
+        appLanguage = prefs.getString("app_language", "system") ?: "system"
+        isDevMode = prefs.getBoolean("developer_mode", false)
+        wallpaperBlurRadius = prefs.getFloat("wallpaper_blur_radius", prefs.getFloat("glass_blur_radius", 18f))
+
+        glassCornerRadius = prefs.getFloat("glass_corner_radius", 38f)
+        glassBlurRadius = prefs.getFloat("glass_blur_radius", 18f)
+        glassRefractionAmount = prefs.getFloat("glass_refraction_amount", -60f)
+        glassRefractionHeight = prefs.getFloat("glass_refraction_height", 12f)
+        glassBleedAmount = prefs.getFloat("glass_bleed_amount", 10f)
+        glassBleedOpacity = prefs.getFloat("glass_bleed_opacity", 0.3f)
+        glassChromaMultiplier = prefs.getFloat("glass_chroma_multiplier", 1.5f)
+        glassContrast = prefs.getFloat("glass_contrast", 0.15f)
+        glassWhitePoint = prefs.getFloat("glass_white_point", 0.20f)
+
+        searchCornerRadius = prefs.getFloat("search_corner_radius", 26f)
+        searchBlurRadius = prefs.getFloat("search_blur_radius", 18f)
+        searchRefractionAmount = prefs.getFloat("search_refraction_amount", -60f)
+        searchRefractionHeight = prefs.getFloat("search_refraction_height", 12f)
+        searchBleedAmount = prefs.getFloat("search_bleed_amount", 10f)
+        searchBleedOpacity = prefs.getFloat("search_bleed_opacity", 0.3f)
+        searchChromaMultiplier = prefs.getFloat("search_chroma_multiplier", 1.5f)
+        searchContrast = prefs.getFloat("search_contrast", 0.15f)
+        searchWhitePoint = prefs.getFloat("search_white_point", 0.20f)
 
         initApiService()
-        setupMediaController()
-        setupFragmentLifecycleListener()
 
-        // 更新状态栏图标颜色
-        updateStatusBarIcons()
+        setContent {
+            val localizedContext = remember(appLanguage) {
+                LanguageHelper.getLocalizedContext(this@HomeActivity, appLanguage)
+            }
 
-        checkUpdate()
+            CompositionLocalProvider(
+                LocalContext provides localizedContext,
+                LocalConfiguration provides localizedContext.resources.configuration,
+            ) {
+                val isTabletLandscape = isTablet && (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
 
-        if (savedInstanceState == null) {
-            replaceFragment(RecentFragment())
-        }
-
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (supportFragmentManager.backStackEntryCount > 0) {
-                    supportFragmentManager.popBackStack()
-                    return
-                }
-
-                // 搜索页返回逻辑：第一次退键盘，第二次回曲库
-                if (selectedTab == "Search") {
-                    val insets = ViewCompat.getRootWindowInsets(window.decorView)
-                    val isImeVisible = insets?.isVisible(WindowInsetsCompat.Type.ime()) == true
-                    if (isImeVisible) {
-                        WindowCompat.getInsetsController(window, window.decorView)
-                            .hide(WindowInsetsCompat.Type.ime())
-                        return
+                HomeScreen(
+                    isTabletLandscape = isTabletLandscape,
+                    isDark = isAppDark(),
+                    selectedTab = selectedTab,
+                    onTabSelected = { tab -> switchTab(tab) },
+                    onShowPlayer = { showPlayer() },
+                    onLibraryScan = { scanLibrary() },
+                    mediaController = mediaController,
+                    isDevMode = isDevMode,
+                    showGlassTuningDialog = showGlassTuningDialog,
+                    tuningTarget = tuningTarget,
+                    onOpenGlassTuning = {
+                        tuningTarget = "dock"
+                        showGlassTuningDialog = true
+                        updateTuningOverlay()
+                    },
+                    onCloseGlassTuning = { showGlassTuningDialog = false },
+                    glassCornerRadius = glassCornerRadius,
+                    glassBlurRadius = glassBlurRadius,
+                    glassRefractionAmount = glassRefractionAmount,
+                    glassRefractionHeight = glassRefractionHeight,
+                    glassBleedAmount = glassBleedAmount,
+                    glassBleedOpacity = glassBleedOpacity,
+                    glassChromaMultiplier = glassChromaMultiplier,
+                    glassContrast = glassContrast,
+                    glassWhitePoint = glassWhitePoint,
+                    onParamChange = { radius, blur, amount, height, bleed, opacity, chroma, cnt, wp ->
+                        glassCornerRadius = radius
+                        glassBlurRadius = blur
+                        glassRefractionAmount = amount
+                        glassRefractionHeight = height
+                        glassBleedAmount = bleed
+                        glassBleedOpacity = opacity
+                        glassChromaMultiplier = chroma
+                        glassContrast = cnt
+                        glassWhitePoint = wp
+                        updateBottomDockUI()
+                    },
+                    onReset = {
+                        glassCornerRadius = 38f
+                        glassBlurRadius = 18f
+                        glassRefractionAmount = -60f
+                        glassRefractionHeight = 12f
+                        glassBleedAmount = 10f
+                        glassBleedOpacity = 0.3f
+                        glassChromaMultiplier = 1.5f
+                        glassContrast = 0.15f
+                        glassWhitePoint = 0.20f
+                        updateBottomDockUI()
+                    },
+                    onSave = {
+                        getSharedPreferences("embysic_prefs", MODE_PRIVATE).edit {
+                            putFloat("glass_corner_radius", glassCornerRadius)
+                            putFloat("glass_blur_radius", glassBlurRadius)
+                            putFloat("glass_refraction_amount", glassRefractionAmount)
+                            putFloat("glass_refraction_height", glassRefractionHeight)
+                            putFloat("glass_bleed_amount", glassBleedAmount)
+                            putFloat("glass_bleed_opacity", glassBleedOpacity)
+                            putFloat("glass_chroma_multiplier", glassChromaMultiplier)
+                            putFloat("glass_contrast", glassContrast)
+                            putFloat("glass_white_point", glassWhitePoint)
+                        }
+                        Toast.makeText(this@HomeActivity, "已保存底栏 Liquid Glass 参数", Toast.LENGTH_SHORT).show()
+                    },
+                    searchCornerRadius = searchCornerRadius,
+                    searchBlurRadius = searchBlurRadius,
+                    searchRefractionAmount = searchRefractionAmount,
+                    searchRefractionHeight = searchRefractionHeight,
+                    searchBleedAmount = searchBleedAmount,
+                    searchBleedOpacity = searchBleedOpacity,
+                    searchChromaMultiplier = searchChromaMultiplier,
+                    searchContrast = searchContrast,
+                    searchWhitePoint = searchWhitePoint,
+                    onSearchParamChange = { radius, blur, amount, height, bleed, opacity, chroma, cnt, wp ->
+                        searchCornerRadius = radius
+                        searchBlurRadius = blur
+                        searchRefractionAmount = amount
+                        searchRefractionHeight = height
+                        searchBleedAmount = bleed
+                        searchBleedOpacity = opacity
+                        searchChromaMultiplier = chroma
+                        searchContrast = cnt
+                        searchWhitePoint = wp
+                    },
+                    onSearchReset = {
+                        searchCornerRadius = 26f
+                        searchBlurRadius = 18f
+                        searchRefractionAmount = -60f
+                        searchRefractionHeight = 12f
+                        searchBleedAmount = 10f
+                        searchBleedOpacity = 0.3f
+                        searchChromaMultiplier = 1.5f
+                        searchContrast = 0.15f
+                        searchWhitePoint = 0.20f
+                    },
+                    onSearchSave = {
+                        getSharedPreferences("embysic_prefs", MODE_PRIVATE).edit {
+                            putFloat("search_corner_radius", searchCornerRadius)
+                            putFloat("search_blur_radius", searchBlurRadius)
+                            putFloat("search_refraction_amount", searchRefractionAmount)
+                            putFloat("search_refraction_height", searchRefractionHeight)
+                            putFloat("search_bleed_amount", searchBleedAmount)
+                            putFloat("search_bleed_opacity", searchBleedOpacity)
+                            putFloat("search_chroma_multiplier", searchChromaMultiplier)
+                            putFloat("search_contrast", searchContrast)
+                            putFloat("search_white_point", searchWhitePoint)
+                        }
+                        Toast.makeText(this@HomeActivity, "已保存搜索框 Liquid Glass 参数", Toast.LENGTH_SHORT).show()
                     }
-                    
-                    selectedTab = "Library"
-                    replaceFragment(LibraryFragment())
-                    return
-                }
-
-                val currentTime = System.currentTimeMillis()
-                if (currentTime - lastBackTime < 2000) {
-                    finish()
-                } else {
-                    lastBackTime = currentTime
-                    Toast.makeText(this@HomeActivity, R.string.press_again_to_exit, Toast.LENGTH_SHORT).show()
+                ) {
+                    if (supportFragmentManager.findFragmentById(R.id.fragment_container) == null) {
+                        if (selectedTab == "Settings") {
+                            replaceFragment(SettingsFragment(), "Settings")
+                        } else {
+                            switchTab(selectedTab)
+                        }
+                    }
                 }
             }
-        })
+        }
+
+        setupMediaController()
+        setupFragmentLifecycleListener()
+        updateStatusBarIcons()
+        updateWallpaper()
+        checkUpdate()
+
+        onBackPressedDispatcher.addCallback(
+            this,
+            object : OnBackPressedCallback(enabled = true) {
+                override fun handleOnBackPressed() {
+                    if (showGlassTuningDialog) {
+                        showGlassTuningDialog = false
+                        return
+                    }
+
+                    val activeFragment = supportFragmentManager.findFragmentById(R.id.fragment_container)
+                    if (activeFragment != null) {
+                        val fields = activeFragment.javaClass.declaredFields
+                        for (field in fields) {
+                            if (LibraryAdapter::class.java.isAssignableFrom(field.type)) {
+                                field.isAccessible = true
+                                val adapter = field[activeFragment] as? LibraryAdapter
+                                if (adapter?.clearExpandedDelete() == true) {
+                                    return
+                                }
+                            }
+                        }
+                    }
+
+                    // 核心逻辑：若 Fragment 回退栈中有子目录/子层级/设置 Fragment，优先 popBackStack 返回上级
+                    if (supportFragmentManager.backStackEntryCount > 0) {
+                        if (selectedTab == "Settings") {
+                            selectedTab = previousTabBeforeSettings
+                        }
+                        supportFragmentManager.popBackStack()
+                        return
+                    }
+
+                    if (selectedTab != "Library") {
+                        selectedTab = "Library"
+                        switchTab("Library")
+                        return
+                    }
+
+                    val currentTime = System.currentTimeMillis()
+                    if ((currentTime - lastBackTime) < 2000) {
+                        finish()
+                    } else {
+                        lastBackTime = currentTime
+                        Toast.makeText(this@HomeActivity, R.string.press_again_to_exit, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            },
+        )
     }
 
     private fun initApiService() {
@@ -160,271 +388,309 @@ class HomeActivity : AppCompatActivity() {
     private fun setupMediaController() {
         val sessionToken = SessionToken(this, android.content.ComponentName(this, PlaybackService::class.java))
         controllerFuture = MediaController.Builder(this, sessionToken).buildAsync()
-        controllerFuture?.addListener({
-            val controller = controllerFuture?.get() ?: return@addListener
-            mediaController = controller
-            
-            if (controller.currentMediaItem == null) {
-                restoreLastPlayedItem(controller)
-            } else {
-                // 冷启动且已有项目（可能由于 Service 重用），确保默认模式
-                controller.repeatMode = Player.REPEAT_MODE_ALL
-                controller.shuffleModeEnabled = false
-                
-                // 确保列表是当前歌曲所在的文件夹
-                updatePlaylistByMode(false)
-            }
+        controllerFuture?.addListener(
+            {
+                val controller = controllerFuture?.get() ?: return@addListener
+                mediaController = controller
 
-            findViewById<ComposeView>(R.id.bottom_container)?.let { composeView ->
-                composeView.setContent {
-                    BottomTabs(
-                        controller = controller,
-                        selectedTab = selectedTab, 
-                        onPlayerClick = { 
-                            if (isTablet && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-                                // 平板横屏下，如果需要切换到播放器逻辑，可以在此处理，但目前需求是不弹出界面
-                            } else {
-                                showPlayer()
-                            }
-                        },
-                        onNavigation = { tab ->
-                            if (selectedTab != tab) {
-                                selectedTab = tab
-                                // 切换标签时，清理滤镜并立即刷新
-                                lastAppliedDockRect = null
-                                refreshSystemEffect()
-                                
-                                when (tab) {
-                                    "Recent" -> replaceFragment(RecentFragment())
-                                    "Favorite" -> replaceFragment(FavoriteFragment())
-                                    "Library" -> replaceFragment(LibraryFragment())
-                                    "Search" -> replaceFragment(SearchFragment())
+                if (controller.currentMediaItem == null) {
+                    restoreLastPlayedItem(controller)
+                } else {
+                    controller.repeatMode = Player.REPEAT_MODE_ALL
+                    controller.shuffleModeEnabled = false
+                    updatePlaylistByMode(isShuffle = false)
+                }
+
+                if (isTablet) {
+                    tabletPlayerHandler = TabletPlayerHandler(this, controller)
+                    tabletPlayerHandler?.init()
+                }
+                if (!isTablet) {
+                    controller.addListener(
+                        object : Player.Listener {
+                            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                                updateBackground(mediaItem)
+                                mediaItem?.let {
+                                    saveLastPlayedMetadata(it)
                                 }
                             }
                         },
-                        onLibraryScan = { scanLibrary() }
                     )
+                    updateBackground(controller.currentMediaItem)
                 }
-            }
-            if (isTablet) {
-                tabletPlayerHandler = TabletPlayerHandler(this, controller)
-                tabletPlayerHandler?.init()
-            }
-            // 手机竖屏背景同步
-            if (!isTablet) {
-                controller.addListener(object : Player.Listener {
-                    override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                        updateBackground(mediaItem)
-                    }
-                })
-                updateBackground(controller.currentMediaItem)
-            }
 
-            // 处理启动或新 Intent 要求的播放页显示
-            if (intent.getBooleanExtra("show_player", false)) {
-                showPlayer()
-            }
-        }, MoreExecutors.directExecutor())
+                if (intent.getBooleanExtra("show_player", false)) {
+                    showPlayer()
+                }
+            },
+            MoreExecutors.directExecutor(),
+        )
     }
 
-    private fun updateStatusBarIcons() {
-        val isDark = isDarkForce()
-        WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = !isDark
-            isAppearanceLightNavigationBars = !isDark
-        }
-    }
-
-    /**
-     * 根据模式更新播放列表 (增量无缝版本)
-     * @param isShuffle 是否切换到随机模式
-     */
     fun updatePlaylistByMode(isShuffle: Boolean) {
-        val controller = mediaController ?: return
-        val currentItem = controller.currentMediaItem ?: return
-        val currentId = currentItem.mediaId
-        
-        val service = apiService ?: return
-        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-        val userId = prefs.getString("user_id", "") ?: ""
-        val accessToken = prefs.getString("access_token", "") ?: ""
-        val serverUrl = prefs.getString("server_url", "") ?: ""
-        val auth = "MediaBrowser Token=\"$accessToken\""
+        lifecycleScope.launch(Dispatchers.IO) {
+            val controller = mediaController ?: return@launch
+            val service = apiService ?: return@launch
+            val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+            val userId = prefs.getString("user_id", "") ?: ""
 
-        activityScope.launch {
             try {
-                // 1. 准备新列表的数据
+                val currentMediaItem = controller.currentMediaItem ?: return@launch
+                val extras = currentMediaItem.mediaMetadata.extras ?: return@launch
+                val parentId = extras.getString("parent_id") ?: return@launch
+
+                val folderResponse = service.getItems(
+                    userId = userId,
+                    parentId = parentId,
+                    sortBy = if (isShuffle) "Random" else "SortName",
+                    sortOrder = "Ascending",
+                    auth = authHeader,
+                )
+
+                val folderItems = folderResponse.Items.filter { (!it.IsFolder) && (it.Type == "Audio") }
+                if (folderItems.isEmpty()) return@launch
+
+                val currentId = currentMediaItem.mediaId.split("_").firstOrNull() ?: currentMediaItem.mediaId
+                val splitIndex = folderItems.indexOfFirst { it.Id == currentId }.coerceAtLeast(0)
+
+                val serverUrl = prefs.getString("server_url", "") ?: ""
+                val accessToken = prefs.getString("access_token", "") ?: ""
+
                 val beforeItems = mutableListOf<MediaItem>()
                 val afterItems = mutableListOf<MediaItem>()
 
-                if (isShuffle) {
-                    // 随机模式：全库拉取 200 首，排除当前项
-                    val response = service.getItems(userId, limit = 200, sortBy = "Random", auth = auth)
-                    val randomItems = response.Items.filter { it.Id != currentId }
-                        .map { MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) }
-                    
-                    // 随机模式下，我们将当前项作为起点，其余全部排在后面
-                    afterItems.addAll(randomItems)
-                } else {
-                    // 列表/单曲模式：拉取同文件夹歌曲
-                    var parentId = currentItem.mediaMetadata.extras?.getString("parent_id")
-                    if (parentId == null) {
-                        try {
-                            val item = service.getItem(userId, currentId, auth, auth)
-                            parentId = item.ParentId ?: item.AlbumId
-                        } catch (_: Exception) {}
+                if (splitIndex > 0) {
+                    beforeItems.addAll(
+                        folderItems.subList(0, splitIndex).map {
+                            MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId)
+                        },
+                    )
+                }
+
+                if (splitIndex < (folderItems.size - 1)) {
+                    afterItems.addAll(
+                        folderItems.subList(splitIndex + 1, folderItems.size).map {
+                            MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId)
+                        },
+                    )
+                }
+
+                withContext(Dispatchers.Main) {
+                    val currentIndex = controller.currentMediaItemIndex
+                    val totalItems = controller.mediaItemCount
+
+                    if (totalItems > (currentIndex + 1)) {
+                        controller.removeMediaItems(currentIndex + 1, totalItems)
                     }
 
-                    if (parentId != null) {
-                        val response = service.getItems(userId, parentId = parentId, auth = auth)
-                        val folderItems = response.Items.sortedBy { it.SortName ?: it.Name }
-                        val splitIndex = folderItems.indexOfFirst { it.Id == currentId }
-                        
-                        if (splitIndex != -1) {
-                            // 分割出当前项之前和之后的歌曲
-                            beforeItems.addAll(folderItems.subList(0, splitIndex).map { 
-                                MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) 
-                            })
-                            afterItems.addAll(folderItems.subList(splitIndex + 1, folderItems.size).map { 
-                                MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) 
-                            })
-                        } else {
-                            // 如果当前项不在文件夹列表中，则全部加在后面
-                            afterItems.addAll(folderItems.map { 
-                                MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) 
-                            })
-                        }
+                    if (currentIndex > 0) {
+                        controller.removeMediaItems(0, currentIndex)
                     }
-                }
 
-                // 2. 执行增量更新以保持播放无缝
-                val currentIndex = controller.currentMediaItemIndex
-                val totalItems = controller.mediaItemCount
+                    if (beforeItems.isNotEmpty()) {
+                        controller.addMediaItems(0, beforeItems)
+                    }
 
-                // a. 移除当前项之后的所有项目
-                if (totalItems > currentIndex + 1) {
-                    controller.removeMediaItems(currentIndex + 1, totalItems)
-                }
-                
-                // b. 移除当前项之前的所有项目
-                if (currentIndex > 0) {
-                    controller.removeMediaItems(0, currentIndex)
-                }
+                    if (afterItems.isNotEmpty()) {
+                        controller.addMediaItems(controller.mediaItemCount, afterItems)
+                    }
 
-                // 此时，Playlist 中只剩下【当前正在播放的项目】，且索引必然为 0
-                // c. 在当前项之前插入新项目
-                if (beforeItems.isNotEmpty()) {
-                    controller.addMediaItems(0, beforeItems)
-                }
-                
-                // d. 在当前项之后插入新项目 (此时当前项索引已变为 beforeItems.size)
-                if (afterItems.isNotEmpty()) {
-                    controller.addMediaItems(controller.mediaItemCount, afterItems)
-                }
-                
-                // 3. 确保播放器准备就绪（增量更新通常不需要重新 prepare，除非之前是 IDLE）
-                if (controller.playbackState == Player.STATE_IDLE) {
-                    controller.prepare()
+                    if (controller.playbackState == Player.STATE_IDLE) {
+                        controller.prepare()
+                    }
                 }
             } catch (_: Exception) {
             }
         }
     }
 
+    fun applyWallpaperBlur(imageView: ImageView) {
+        val blurPx = wallpaperBlurRadius.coerceIn(0f, 100f)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            imageView.setRenderEffect(
+                if (blurPx > 0.1f) RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP) else null
+            )
+        }
+    }
+
+    fun updateWallpaperBlurLive(blurRadius: Float) {
+        wallpaperBlurRadius = blurRadius
+        val blurPx = blurRadius.coerceIn(0f, 100f)
+        val rootContent = (window?.decorView as? android.view.ViewGroup) ?: return
+        val backgroundViews = mutableListOf<ImageView>()
+        fun findAllBgViews(v: View) {
+            if (v is ImageView && (v.id == R.id.ivBlurBackground || v.id == R.id.ivFragmentBackground)) {
+                backgroundViews.add(v)
+            } else if (v is android.view.ViewGroup) {
+                for (i in 0 until v.childCount) {
+                    findAllBgViews(v.getChildAt(i))
+                }
+            }
+        }
+        findAllBgViews(rootContent)
+
+        for (iv in backgroundViews) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                iv.setRenderEffect(
+                    if (blurPx > 0.1f) RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP) else null
+                )
+            }
+        }
+    }
+
+    fun updateAppTheme(mode: String) {
+        themeMode = mode
+        getSharedPreferences("embysic_prefs", MODE_PRIVATE).edit {
+            putString("app_theme_mode", mode)
+        }
+        updateStatusBarIcons()
+        updateWallpaper()
+    }
+
+    fun updateAppLanguage(langCode: String) {
+        appLanguage = langCode
+        getSharedPreferences("embysic_prefs", MODE_PRIVATE).edit {
+            putString("app_language", langCode)
+        }
+    }
+
+    fun updateWallpaper() {
+        val mode = WallpaperManager.getMode(this)
+        val blurPx = wallpaperBlurRadius.coerceIn(0f, 100f)
+        val isDark = isAppDark()
+
+        lifecycleScope.launch {
+            val rootContent = window?.decorView as? android.view.ViewGroup ?: return@launch
+            val backgroundViews = mutableListOf<ImageView>()
+            fun findAllBgViews(v: View) {
+                if (v is ImageView && (v.id == R.id.ivBlurBackground || v.id == R.id.ivFragmentBackground)) {
+                    backgroundViews.add(v)
+                } else if (v is android.view.ViewGroup) {
+                    for (i in 0 until v.childCount) {
+                        findAllBgViews(v.getChildAt(i))
+                    }
+                }
+            }
+            findAllBgViews(rootContent)
+
+            if (mode == "none") {
+                val noneColorInt = if (isDark) android.graphics.Color.rgb(18, 18, 24) else android.graphics.Color.rgb(248, 250, 252)
+                for (iv in backgroundViews) {
+                    iv.visibility = View.VISIBLE
+                    iv.alpha = 1.0f
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        iv.setRenderEffect(null)
+                    }
+                    iv.setImageDrawable(noneColorInt.toDrawable())
+                }
+                return@launch
+            }
+
+            val source = WallpaperManager.getActiveWallpaperSource(this@HomeActivity)
+            for (iv in backgroundViews) {
+                iv.visibility = View.VISIBLE
+                iv.alpha = if (iv.id == R.id.ivBlurBackground) 0.6f else 1.0f
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    iv.setRenderEffect(
+                        if (blurPx > 0.1f) RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP) else null
+                    )
+                }
+                if (source is Int) {
+                    iv.setImageResource(source)
+                } else {
+                    iv.load(source) {
+                        crossfade(enable = false)
+                        allowHardware(enable = false)
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                            transformations(BlurTransformation(this@HomeActivity, blurPx.toInt().coerceIn(1, 100), 4))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fun updateBackground(item: MediaItem?) {
+        if (WallpaperManager.getMode(this) != "default") {
+            updateWallpaper()
+            return
+        }
         val ivBlurBackground = findViewById<ImageView>(R.id.ivBlurBackground) ?: return
         
-        // 如果是手机模式，固定使用 bg_superman 的模糊版
-        // 如果是平板模式，可以继续保留随歌曲切换背景的特性
-        val backgroundData = if (isTablet) {
+        val fallbackUrl = "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1920"
+        val backgroundData: Any = if (isTablet) {
             val metadata = item?.mediaMetadata
             val mediaId = item?.mediaId
             val artworkUri = metadata?.artworkUri
             val prefs = getSharedPreferences("netease_covers", MODE_PRIVATE)
             val cachedCover = mediaId?.let { prefs.getString(it, null) }
-            cachedCover?.toUri() ?: artworkUri ?: R.drawable.bg_superman
+            cachedCover?.toUri() ?: artworkUri ?: fallbackUrl
         } else {
-            R.drawable.bg_superman
+            fallbackUrl
         }
 
         ivBlurBackground.load(backgroundData) {
-            crossfade(true)
-            transformations(jp.wasabeef.transformers.coil.BlurTransformation(this@HomeActivity, 25, 3))
-            if (isTablet && item != null) {
-                listener(onError = { _, _ ->
-                    val metadata = item.mediaMetadata
-                    searchNeteaseCoverForBackground(
-                        item.mediaId, 
-                        metadata.title?.toString(), 
-                        metadata.artist?.toString(),
-                        metadata.albumTitle?.toString()
-                    )
-                })
-            }
+            crossfade(enable = true)
         }
     }
 
-    private fun searchNeteaseCoverForBackground(mediaId: String, title: String?, artist: String?, album: String? = null) {
-        val currentDuration = mediaController?.currentMediaItem?.mediaMetadata?.extras?.getLong("duration_ms") ?: 0L
-        lifecycleScope.launch(Dispatchers.IO) {
-            val rawTitle = title ?: ""
-            val query = if (album.isNullOrBlank() || album == "未知专辑") {
-                if (artist.isNullOrBlank() || artist == "未知歌手") rawTitle else "$rawTitle $artist"
-            } else {
-                "$album $artist"
+    fun saveLastPlayedMetadata(item: MediaItem) {
+        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+        val title = item.mediaMetadata.title?.toString()
+        if (!title.isNullOrEmpty()) {
+            prefs.edit {
+                putString("last_played_id", item.mediaId)
+                putString("last_played_title", title)
+                putString("last_played_artist", item.mediaMetadata.artist?.toString() ?: "")
+                putString("last_played_album", item.mediaMetadata.albumTitle?.toString() ?: "")
+                putString("last_played_artwork", item.mediaMetadata.artworkUri?.toString() ?: "")
             }
-            if (query.isEmpty()) return@launch
-
-            try {
-                val neteaseApi = RetrofitClient.neteaseApi
-                val searchResponse = neteaseApi.searchSong(query)
-                val songs = searchResponse.result?.songs ?: return@launch
-                
-                // 使用优化后的匹配逻辑
-                val song = LyricUtils.findBestMatch(songs, rawTitle, artist, album, currentDuration)
-                    ?: songs.firstOrNull() ?: return@launch
-
-                val detailResponse = neteaseApi.getSongDetail("[{\"id\":${song.id}}]")
-                val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
-                
-                if (picUrl != null) {
-                    withContext(Dispatchers.Main) {
-                        if (mediaController?.currentMediaItem?.mediaId == mediaId) {
-                            getSharedPreferences("netease_covers", MODE_PRIVATE)
-                                .edit { putString(mediaId, picUrl) }
-                            
-                            findViewById<ImageView>(R.id.ivBlurBackground)?.load(picUrl) {
-                                crossfade(true)
-                                transformations(jp.wasabeef.transformers.coil.BlurTransformation(this@HomeActivity, 25, 3))
-                            }
-                        }
-                    }
-                }
-            } catch (_: Exception) { }
         }
     }
 
     private fun restoreLastPlayedItem(controller: MediaController) {
-        val service = apiService ?: return
         val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
+        val lastId = prefs.getString("last_played_id", null)
+        val lastTitle = prefs.getString("last_played_title", null)
+        val lastArtist = prefs.getString("last_played_artist", "") ?: ""
+        val lastAlbum = prefs.getString("last_played_album", "") ?: ""
+        val lastArtwork = prefs.getString("last_played_artwork", null)
+
+        // 1. 冷启动 0ms 瞬间本地离线渲染底栏，播放条绝不为空
+        if (!lastId.isNullOrEmpty() && !lastTitle.isNullOrEmpty()) {
+            val metadata = androidx.media3.common.MediaMetadata.Builder()
+                .setTitle(lastTitle)
+                .setArtist(lastArtist)
+                .setAlbumTitle(lastAlbum)
+                .setArtworkUri(lastArtwork?.toUri())
+                .build()
+
+            val localItem = MediaItem.Builder()
+                .setMediaId(lastId)
+                .setUri(lastArtwork?.toUri() ?: "http://dummy/audio.mp3".toUri())
+                .setMediaMetadata(metadata)
+                .build()
+
+            controller.setMediaItem(localItem)
+            controller.prepare()
+        }
+
+        val service = apiService ?: return
         val userId = prefs.getString("user_id", "") ?: ""
-        val accessToken = prefs.getString("access_token", "") ?: ""
         val serverUrl = prefs.getString("server_url", "") ?: ""
-        if (userId.isEmpty() || accessToken.isEmpty()) return
-        
-        val auth = "MediaBrowser Token=\"$accessToken\""
-        activityScope.launch {
+        val accessToken = prefs.getString("access_token", "") ?: ""
+
+        lifecycleScope.launch(Dispatchers.IO) {
             try {
-                val response = service.getRecentlyPlayedItems(userId, limit = 1, auth = auth)
+                val response = service.getRecentlyPlayedItems(userId = userId, limit = 1, auth = authHeader)
                 response.Items.firstOrNull()?.let { item ->
-                    // 默认冷启动为列表循环，加载同文件夹列表
                     val parentId = item.ParentId ?: item.AlbumId
-                    val folderResponse = if (parentId != null) {
-                        service.getItems(userId, parentId = parentId, auth = auth)
-                    } else null
+                    val folderResponse = parentId?.let {
+                        service.getItems(userId, parentId = it, auth = authHeader)
+                    }
                     
                     val currentId = item.Id
-                    val mediaItems = if (folderResponse != null && folderResponse.Items.isNotEmpty()) {
+                    val mediaItems = if ((folderResponse != null) && folderResponse.Items.isNotEmpty()) {
                         val sorted = folderResponse.Items.sortedBy { it.SortName ?: it.Name }
                         sorted.map { MediaItemUtils.buildMediaItem(this@HomeActivity, it, serverUrl, accessToken, userId) }
                     } else {
@@ -432,178 +698,9 @@ class HomeActivity : AppCompatActivity() {
                     }
                     
                     val startIndex = mediaItems.indexOfFirst { it.mediaId == currentId }.coerceAtLeast(0)
-                    controller.setMediaItems(mediaItems, startIndex, (item.UserData?.PlaybackPositionTicks ?: 0L) / 10000)
-                    controller.repeatMode = Player.REPEAT_MODE_ALL
-                    controller.shuffleModeEnabled = false
-                    controller.prepare()
-                }
-            } catch (_: Exception) { }
-        }
-    }
-
-    private fun scanLibrary() {
-        val service = apiService ?: return
-        val prefs = getSharedPreferences("embysic_prefs", MODE_PRIVATE)
-        val userId = prefs.getString("user_id", "") ?: ""
-        val accessToken = prefs.getString("access_token", "") ?: ""
-        val auth = "MediaBrowser Token=\"$accessToken\""
-        activityScope.launch {
-            try {
-                // 1. 获取所有顶级视图
-                val views = service.getUserViews(userId, auth)
-                // 2. 找到 CollectionType 为 "music" 的库（即音乐库）
-                val musicLibrary = views.Items.find { it.CollectionType == "music" }
-                
-                if (musicLibrary != null) {
-                    // 3. 只刷新这个特定音乐库的 ID
-                    service.refreshItem(musicLibrary.Id, auth)
-                    Toast.makeText(this@HomeActivity, R.string.sync_library_started, Toast.LENGTH_SHORT).show()
-                } else {
-                    Log.w("HomeActivity", "Music library not found for scanning")
-                }
-            } catch (_: Exception) { 
-            }
-        }
-    }
-
-    private fun setupFragmentLifecycleListener() {
-        supportFragmentManager.registerFragmentLifecycleCallbacks(object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
-            override fun onFragmentResumed(fm: androidx.fragment.app.FragmentManager, f: Fragment) {
-                if (f is PlayerDialogFragment) {
-                    isPlayerShown = true
-                    refreshSystemEffect()
-                }
-            }
-            override fun onFragmentDestroyed(fm: androidx.fragment.app.FragmentManager, f: Fragment) {
-                if (f is PlayerDialogFragment) {
-                    isPlayerShown = false
-                    refreshSystemEffect()
-                }
-            }
-        }, false)
-    }
-
-    // --- 极致玻璃渲染逻辑：只模糊背景，不模糊文字 ---
-    fun setDockRect(rect: RectF) {
-        dockRect = rect
-        refreshSystemEffect()
-    }
-
-    fun applyDialogEffect(rect: RectF, radius: Float, amount: Float, height: Float, blur: Float) {
-        dialogRect = rect
-        dialogRadius = radius
-        refreshSystemEffect()
-    }
-
-    fun clearDialogEffect() {
-        dialogRect = null
-        refreshSystemEffect()
-    }
-
-    private fun refreshSystemEffect() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val container = findViewById<View>(R.id.fragment_container) ?: return
-            
-            // 优化 1: 如果播放页打开，或者没有需要模糊的区域，彻底移除滤镜
-            // 这里不直接判断 container.renderEffect，而是依赖内部逻辑。
-            if (isPlayerShown || (dockRect == null && dialogRect == null)) {
-                container.setRenderEffect(null)
-                lastAppliedDockRect = null
-                lastAppliedDialogRect = null
-                lastAppliedIsDark = null
-                return
-            }
-
-            val isDark = isDarkForce()
-            
-            // 优化 2: 如果参数没有变化，跳过 Effect 创建（创建 RenderEffect 非常耗电）
-            if (dockRect == lastAppliedDockRect && dialogRect == lastAppliedDialogRect && isDark == lastAppliedIsDark) {
-                return
-            }
-
-            val dm = resources.displayMetrics
-            val pxRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, glassRadius, dm)
-            val pxDialogRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, dialogRadius, dm)
-            val pxAmount = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, glassAmount, dm)
-            val pxHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, glassHeight, dm)
-            val pxBlur = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, glassBlur, dm)
-
-            // 关键修复：由于 fragment_container 可能有 padding (用于状态栏避让)，
-            // 我们上报的坐标是相对于屏幕的，需要调整到相对于容器的绘制空间。
-            val containerLoc = IntArray(2)
-            container.getLocationOnScreen(containerLoc)
-            
-            val adjustedDockRect = dockRect?.let {
-                RectF(it.left - containerLoc[0], it.top - containerLoc[1], 
-                      it.right - containerLoc[0], it.bottom - containerLoc[1])
-            } ?: RectF(-100f, -100f, -50f, -50f)
-
-            val adjustedDialogRect = dialogRect?.let {
-                RectF(it.left - containerLoc[0], it.top - containerLoc[1], 
-                      it.right - containerLoc[0], it.bottom - containerLoc[1])
-            }
-
-            val effect = LiquidGlassFactory.createLiquidRenderEffect(
-                container.width.toFloat(), container.height.toFloat(),
-                adjustedDockRect, pxRadius, pxAmount, pxHeight, pxBlur, isDark, 
-                adjustedDialogRect, pxDialogRadius
-            )
-            container.setRenderEffect(effect)
-            
-            // 记录最后一次应用的状态
-            lastAppliedDockRect = RectF(dockRect)
-            lastAppliedDialogRect = dialogRect?.let { RectF(it) }
-            lastAppliedIsDark = isDark
-        }
-    }
-
-    // --- 导航 ---
-    fun showPlayer() {
-        // 如果播放器已经显示，或者 MediaController 还没准备好，则不执行
-        if (isPlayerShown || supportFragmentManager.findFragmentByTag("player") != null || mediaController == null) {
-            return
-        }
-        // 如果是平板且处于横屏模式，不弹出播放界面（因为已经常驻在中间栏了）
-        if (isTablet && resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
-            return
-        }
-        val dialog = PlayerDialogFragment()
-        mediaController?.let { dialog.setPlayer(it) }
-        dialog.show(supportFragmentManager, "player")
-    }
-
-    fun replaceFragment(fragment: Fragment, tag: String? = null) {
-        val transaction = supportFragmentManager.beginTransaction()
-        
-        // 如果是手势返回，我们希望 pop 过程没有动画
-        // 但 setCustomAnimations 是在 commit 时固化的。
-        // 所以我们改为：如果是进入子页面，根据 isSwipingBack 状态动态设置
-        transaction.setCustomAnimations(
-            R.anim.ios_slide_in_right, 0,
-            0, R.anim.ios_slide_out_right
-        )
-        
-        val currentFragment = supportFragmentManager.findFragmentById(R.id.fragment_container)
-        if (tag != null && currentFragment != null) {
-            transaction.add(R.id.fragment_container, fragment)
-            transaction.hide(currentFragment)
-            transaction.addToBackStack(tag)
-        } else {
-            transaction.replace(R.id.fragment_container, fragment)
-        }
-        transaction.commit()
-    }
-
-    private fun checkUpdate() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val latestRelease = RetrofitClient.githubApi.getLatestRelease()
-                val latestVersion = latestRelease.tag_name.replace("v", "")
-                val currentVersion = BuildConfig.VERSION_NAME
-
-                if (isNewerVersion(currentVersion, latestVersion)) {
                     withContext(Dispatchers.Main) {
-                        showUpdateDialog(latestRelease)
+                        controller.setMediaItems(mediaItems, startIndex, (item.UserData?.PlaybackPositionTicks ?: 0L) / 10000)
+                        controller.prepare()
                     }
                 }
             } catch (_: Exception) {
@@ -611,56 +708,493 @@ class HomeActivity : AppCompatActivity() {
         }
     }
 
-    private fun isNewerVersion(current: String, latest: String): Boolean {
-        val currentParts = current.split(".").mapNotNull { it.toIntOrNull() }
-        val latestParts = latest.split(".").mapNotNull { it.toIntOrNull() }
-        
+    private fun scanLibrary() {
+        Toast.makeText(this, "正在扫描曲库...", Toast.LENGTH_SHORT).show()
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                apiService?.refreshItem("1", authHeader)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@HomeActivity, "扫描完成", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@HomeActivity, "扫描失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    fun isAppDark(): Boolean {
+        return when (themeMode) {
+            "light" -> false
+            "dark" -> true
+            else -> (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) == Configuration.UI_MODE_NIGHT_YES
+        }
+    }
+
+    fun updateStatusBarIcons() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            val dark = isAppDark()
+            isAppearanceLightStatusBars = !dark
+            isAppearanceLightNavigationBars = !dark
+        }
+    }
+
+    private fun setupFragmentLifecycleListener() {
+        supportFragmentManager.registerFragmentLifecycleCallbacks(
+            object : androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+            override fun onFragmentResumed(fm: androidx.fragment.app.FragmentManager, f: Fragment) {
+                super.onFragmentResumed(fm, f)
+                if (f is PlayerDialogFragment) {
+                    isPlayerShown = true
+                }
+                if (f is SettingsFragment) {
+                    selectedTab = "Settings"
+                }
+            }
+
+            override fun onFragmentPaused(fm: androidx.fragment.app.FragmentManager, f: Fragment) {
+                super.onFragmentPaused(fm, f)
+                if (f is PlayerDialogFragment) {
+                    isPlayerShown = false
+                }
+                if (f is SettingsFragment && (selectedTab == "Settings")) {
+                    selectedTab = "Library"
+                }
+            }
+        }, false)
+    }
+
+    fun updateBottomDockUI() {}
+
+    fun updateTuningOverlay() {
+        val tuningContainer = findViewById<ComposeView>(R.id.tuning_container) ?: return
+        if (!showGlassTuningDialog) {
+            tuningContainer.visibility = View.GONE
+            return
+        }
+        tuningContainer.visibility = View.VISIBLE
+        tuningContainer.setContent {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+                contentAlignment = Alignment.TopStart,
+            ) {
+                if (tuningTarget == "search") {
+                    SearchGlassTuningDialog(
+                        cornerRadius = searchCornerRadius,
+                        blurRadius = searchBlurRadius,
+                        refractionAmount = searchRefractionAmount,
+                        refractionHeight = searchRefractionHeight,
+                        bleedAmount = searchBleedAmount,
+                        bleedOpacity = searchBleedOpacity,
+                        chromaMultiplier = searchChromaMultiplier,
+                        contrast = searchContrast,
+                        whitePoint = searchWhitePoint,
+                        onParamChange = { radius, blur, amount, height, bleed, opacity, chroma, cnt, wp ->
+                            searchCornerRadius = radius
+                            searchBlurRadius = blur
+                            searchRefractionAmount = amount
+                            searchRefractionHeight = height
+                            searchBleedAmount = bleed
+                            searchBleedOpacity = opacity
+                            searchChromaMultiplier = chroma
+                            searchContrast = cnt
+                            searchWhitePoint = wp
+                        },
+                        onReset = {
+                            searchCornerRadius = 26f
+                            searchBlurRadius = 18f
+                            searchRefractionAmount = -60f
+                            searchRefractionHeight = 12f
+                            searchBleedAmount = 10f
+                            searchBleedOpacity = 0.3f
+                            searchChromaMultiplier = 1.5f
+                            searchContrast = 0.15f
+                            searchWhitePoint = 0.20f
+                        },
+                        onSave = {
+                            getSharedPreferences("embysic_prefs", MODE_PRIVATE).edit {
+                                putFloat("search_corner_radius", searchCornerRadius)
+                                putFloat("search_blur_radius", searchBlurRadius)
+                                putFloat("search_refraction_amount", searchRefractionAmount)
+                                putFloat("search_refraction_height", searchRefractionHeight)
+                                putFloat("search_bleed_amount", searchBleedAmount)
+                                putFloat("search_bleed_opacity", searchBleedOpacity)
+                                putFloat("search_chroma_multiplier", searchChromaMultiplier)
+                                putFloat("search_contrast", searchContrast)
+                                putFloat("search_white_point", searchWhitePoint)
+                            }
+                            Toast.makeText(this@HomeActivity, "已保存搜索框 Liquid Glass 参数", Toast.LENGTH_SHORT).show()
+                        },
+                        onClose = {
+                            showGlassTuningDialog = false
+                            updateTuningOverlay()
+                        },
+                    )
+                } else {
+                    DockGlassTuningDialog(
+                        cornerRadius = glassCornerRadius,
+                        blurRadius = glassBlurRadius,
+                        refractionAmount = glassRefractionAmount,
+                        refractionHeight = glassRefractionHeight,
+                        bleedAmount = glassBleedAmount,
+                        bleedOpacity = glassBleedOpacity,
+                        chromaMultiplier = glassChromaMultiplier,
+                        contrast = glassContrast,
+                        whitePoint = glassWhitePoint,
+                        onParamChange = { radius, blur, amount, height, bleed, opacity, chroma, cnt, wp ->
+                            val blurChanged = glassBlurRadius != blur
+                            glassCornerRadius = radius
+                            glassBlurRadius = blur
+                            glassRefractionAmount = amount
+                            glassRefractionHeight = height
+                            glassBleedAmount = bleed
+                            glassBleedOpacity = opacity
+                            glassChromaMultiplier = chroma
+                            glassContrast = cnt
+                            glassWhitePoint = wp
+                            if (blurChanged) {
+                                updateWallpaper()
+                            }
+                        },
+                        onReset = {
+                            glassCornerRadius = 38f
+                            glassBlurRadius = 18f
+                            glassRefractionAmount = -60f
+                            glassRefractionHeight = 12f
+                            glassBleedAmount = 10f
+                            glassBleedOpacity = 0.3f
+                            glassChromaMultiplier = 1.5f
+                            glassContrast = 0.15f
+                            glassWhitePoint = 0.20f
+                            updateWallpaper()
+                        },
+                        onSave = {
+                            getSharedPreferences("embysic_prefs", MODE_PRIVATE).edit {
+                                putFloat("glass_corner_radius", glassCornerRadius)
+                                putFloat("glass_blur_radius", glassBlurRadius)
+                                putFloat("glass_refraction_amount", glassRefractionAmount)
+                                putFloat("glass_refraction_height", glassRefractionHeight)
+                                putFloat("glass_bleed_amount", glassBleedAmount)
+                                putFloat("glass_bleed_opacity", glassBleedOpacity)
+                                putFloat("glass_chroma_multiplier", glassChromaMultiplier)
+                                putFloat("glass_contrast", glassContrast)
+                                putFloat("glass_white_point", glassWhitePoint)
+                            }
+                            Toast.makeText(this@HomeActivity, "已保存底栏 Liquid Glass 参数", Toast.LENGTH_SHORT).show()
+                        },
+                        onClose = {
+                            showGlassTuningDialog = false
+                            updateTuningOverlay()
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    fun showPlayer() {
+        if ((isPlayerShown || (supportFragmentManager.findFragmentByTag("player") != null)) || (mediaController == null)) {
+            return
+        }
+        if (isTablet && (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)) {
+            return
+        }
+        val dialog = PlayerDialogFragment()
+        mediaController?.let { dialog.setPlayer(it) }
+        dialog.show(supportFragmentManager, "player")
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        tabletPlayerHandler?.onConfigurationChanged()
+    }
+
+    fun replaceFragment(fragment: Fragment, tag: String? = null) {
+        if (fragment is SettingsFragment) {
+            if (selectedTab != "Settings") {
+                previousTabBeforeSettings = selectedTab
+            }
+            selectedTab = "Settings"
+        }
+        val fragmentTag = tag ?: fragment.javaClass.simpleName
+        val transaction = supportFragmentManager.beginTransaction()
+        transaction.setCustomAnimations(
+            R.anim.ios_slide_in_right, 0,
+            0, R.anim.ios_slide_out_right,
+        )
+        val currentFragment = supportFragmentManager.findFragmentById(R.id.fragment_container)
+        if (currentFragment != null) {
+            transaction.add(R.id.fragment_container, fragment)
+            transaction.hide(currentFragment)
+            transaction.addToBackStack(fragmentTag)
+        } else {
+            transaction.replace(R.id.fragment_container, fragment, fragmentTag)
+        }
+        transaction.commit()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString("selected_tab", selectedTab)
+        getSharedPreferences("embysic_prefs", MODE_PRIVATE).edit {
+            putString("last_active_tab", selectedTab)
+        }
+    }
+
+    fun popBackStackWithNoAnim() {
+        if (selectedTab == "Settings") {
+            selectedTab = previousTabBeforeSettings
+        }
+        supportFragmentManager.popBackStack()
+    }
+
+    private fun checkUpdate() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val latestRelease = RetrofitClient.githubApi.getLatestRelease()
+                val latestVersion = latestRelease.tag_name.replace("v", "")
+
+                if (isNewerVersion(latestVersion)) {
+                    withContext(Dispatchers.Main) {
+                        showUpdateDialog(latestRelease)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("HomeActivity", "Check update failed", e)
+            }
+        }
+    }
+
+    private fun isNewerVersion(latestVersion: String): Boolean {
+        val currentVersion = BuildConfig.VERSION_NAME
+        val currentParts = currentVersion.split(".").map { it.toIntOrNull() ?: 0 }
+        val latestParts = latestVersion.split(".").map { it.toIntOrNull() ?: 0 }
+
         val maxLength = maxOf(currentParts.size, latestParts.size)
         for (i in 0 until maxLength) {
-            val curr = currentParts.getOrElse(i) { 0 }
-            val late = latestParts.getOrElse(i) { 0 }
-            if (late > curr) return true
-            if (curr > late) return false
+            val currentPart = currentParts.getOrElse(i) { 0 }
+            val latestPart = latestParts.getOrElse(i) { 0 }
+            if (latestPart > currentPart) return true
+            if (latestPart < currentPart) return false
         }
         return false
     }
 
     private fun showUpdateDialog(release: GithubRelease) {
+        val message = "版本：${release.tag_name}\n\n更新内容：\n${release.body}"
+        val downloadUrl = release.html_url
+
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("发现新版本 ${release.tag_name}")
-            .setMessage("更新日志：\n${release.body}")
-            .setCancelable(false) // 必须用户手动点击按钮
-            .setPositiveButton("立即去下载") { _, _ ->
-                val intent = Intent(Intent.ACTION_VIEW, release.html_url.toUri())
+            .setTitle("发现新版本")
+            .setMessage(message)
+            .setPositiveButton("立即更新") { _, _ ->
+                val intent = Intent(Intent.ACTION_VIEW, downloadUrl.toUri())
                 startActivity(intent)
             }
-            .setNegativeButton("稍后再说", null)
+            .setNegativeButton("稍后", null)
             .show()
     }
+}
 
-    /**
-     * 手势返回专用的 pop 方法：彻底禁用动画
-     */
-    fun popBackStackWithNoAnim() {
-        isSwipingBack = true
-        // 立即执行回退
-        supportFragmentManager.popBackStackImmediate()
-        // 稍微延长标记时间，确保所有 Fragment 的动画回调都已完成
-        findViewById<View>(android.R.id.content).postDelayed({
-            isSwipingBack = false
-        }, 500)
+@OptIn(UnstableApi::class)
+@Composable
+fun HomeScreen(
+    isTabletLandscape: Boolean,
+    isDark: Boolean = true,
+    selectedTab: String,
+    onTabSelected: (String) -> Unit,
+    onShowPlayer: () -> Unit,
+    onLibraryScan: () -> Unit,
+    mediaController: MediaController?,
+    isDevMode: Boolean,
+    showGlassTuningDialog: Boolean,
+    tuningTarget: String = "dock",
+    onOpenGlassTuning: () -> Unit,
+    onCloseGlassTuning: () -> Unit,
+    glassCornerRadius: Float,
+    glassBlurRadius: Float,
+    glassRefractionAmount: Float,
+    glassRefractionHeight: Float,
+    glassBleedAmount: Float,
+    glassBleedOpacity: Float,
+    glassChromaMultiplier: Float,
+    glassContrast: Float,
+    glassWhitePoint: Float,
+    onParamChange: (Float, Float, Float, Float, Float, Float, Float, Float, Float) -> Unit,
+    onReset: () -> Unit,
+    onSave: () -> Unit,
+    searchCornerRadius: Float = 26f,
+    searchBlurRadius: Float = 18f,
+    searchRefractionAmount: Float = -60f,
+    searchRefractionHeight: Float = 12f,
+    searchBleedAmount: Float = 10f,
+    searchBleedOpacity: Float = 0.3f,
+    searchChromaMultiplier: Float = 1.5f,
+    searchContrast: Float = 0.15f,
+    searchWhitePoint: Float = 0.20f,
+    onSearchParamChange: (Float, Float, Float, Float, Float, Float, Float, Float, Float) -> Unit = { _, _, _, _, _, _, _, _, _ -> },
+    onSearchReset: () -> Unit = {},
+    onSearchSave: () -> Unit = {},
+    onContainerReady: () -> Unit = {},
+) {
+    val isPreview = LocalInspectionMode.current
+    val backdrop = rememberLayerBackdrop()
+    val homeContext = LocalContext.current
+    val homeActivity = remember(homeContext) { homeContext.findHomeActivity() }
+    val currentIsDark = if (isTabletLandscape) true else isDark
+    SideEffect {
+        homeActivity?.homeBackdrop = backdrop
     }
 
-    override fun onConfigurationChanged(newConfig: Configuration) {
-        super.onConfigurationChanged(newConfig)
-        updateStatusBarIcons()
-        refreshSystemEffect()
-        tabletPlayerHandler?.onConfigurationChanged()
-    }
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Layer 1 (底层): 壁纸 + 歌曲列表容器 -> 挂载 Modifier.layerBackdrop(backdrop) 实时抓取像素画面！
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(if (!isPreview) Modifier.layerBackdrop(backdrop) else Modifier),
+        ) {
+            if (isPreview) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(ComposeColor(0xFF1E1E2C)),
+                )
+            } else {
+                AndroidView(
+                    factory = { context ->
+                        ImageView(context).apply {
+                            id = R.id.ivBlurBackground
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                        }
+                    },
+                    update = { iv ->
+                        (iv.context as? HomeActivity)?.updateWallpaper()
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
 
-    override fun onDestroy() {
-        super.onDestroy()
-        handler.removeCallbacksAndMessages(null)
-        controllerFuture?.let { MediaController.releaseFuture(it) }
+                AndroidView(
+                    factory = { context ->
+                        FrameLayout(context).apply {
+                            id = R.id.fragment_container
+                            post { onContainerReady() }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+
+        // Layer 2 & 3 (中层玻璃底座 + 顶层前景内容): 只有在非 Settings 状态下才显示底栏！
+        if (selectedTab != "Settings") {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter),
+            ) {
+                BottomTabs(
+                    controller = mediaController,
+                    selectedTab = selectedTab,
+                    onPlayerClick = onShowPlayer,
+                    onNavigation = onTabSelected,
+                    onLibraryScan = onLibraryScan,
+                    isDevMode = isDevMode,
+                    isDark = currentIsDark,
+                    onOpenGlassTuning = onOpenGlassTuning,
+                    cornerRadius = glassCornerRadius,
+                    blurRadius = glassBlurRadius,
+                    refractionAmount = glassRefractionAmount,
+                    refractionHeight = glassRefractionHeight,
+                    bleedAmount = glassBleedAmount,
+                    bleedOpacity = glassBleedOpacity,
+                    chromaMultiplier = glassChromaMultiplier,
+                    contrast = glassContrast,
+                    whitePoint = glassWhitePoint,
+                    backdrop = backdrop,
+                )
+            }
+        }
+
+        // Layer 4 (最外层/调参 Overlay)
+        if (showGlassTuningDialog) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding(),
+                contentAlignment = Alignment.TopStart,
+            ) {
+                if (tuningTarget == "search") {
+                    SearchGlassTuningDialog(
+                        cornerRadius = searchCornerRadius,
+                        blurRadius = searchBlurRadius,
+                        refractionAmount = searchRefractionAmount,
+                        refractionHeight = searchRefractionHeight,
+                        bleedAmount = searchBleedAmount,
+                        bleedOpacity = searchBleedOpacity,
+                        chromaMultiplier = searchChromaMultiplier,
+                        contrast = searchContrast,
+                        whitePoint = searchWhitePoint,
+                        onParamChange = onSearchParamChange,
+                        onReset = onSearchReset,
+                        onSave = onSearchSave,
+                        onClose = onCloseGlassTuning,
+                    )
+                } else {
+                    DockGlassTuningDialog(
+                        cornerRadius = glassCornerRadius,
+                        blurRadius = glassBlurRadius,
+                        refractionAmount = glassRefractionAmount,
+                        refractionHeight = glassRefractionHeight,
+                        bleedAmount = glassBleedAmount,
+                        bleedOpacity = glassBleedOpacity,
+                        chromaMultiplier = glassChromaMultiplier,
+                        contrast = glassContrast,
+                        whitePoint = glassWhitePoint,
+                        onParamChange = onParamChange,
+                        onReset = onReset,
+                        onSave = onSave,
+                        onClose = onCloseGlassTuning,
+                    )
+                }
+            }
+        }
+
+        AndroidView(
+            factory = { context ->
+                HeartLayout(context).apply {
+                    id = R.id.heartLayout
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
     }
+}
+
+@Suppress("Unused")
+@Composable
+fun HomeScreenPreviewContent(isTabletLandscape: Boolean) {
+    if (isTabletLandscape) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(16.dp),
+            )
+        }
+    }
+}
+
+@Suppress("UnstableApiUsage")
+@OptIn(UnstableApi::class)
+fun android.content.Context.findHomeActivity(): HomeActivity? {
+    var ctx = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is HomeActivity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

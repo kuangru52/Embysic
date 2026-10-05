@@ -9,7 +9,6 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
     private const val NETEASE_BASE_URL = "https://music.163.com/"
-    private const val DISCOGS_BASE_URL = "https://api.discogs.com/"
     private const val GITHUB_BASE_URL = "https://api.github.com/"
 
     private val githubOkHttpClient: OkHttpClient by lazy {
@@ -26,28 +25,6 @@ object RetrofitClient {
             .addConverterFactory(GsonConverterFactory.create())
             .build()
             .create(GithubApiService::class.java)
-    }
-
-    private val discogsOkHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(15, TimeUnit.SECONDS)
-            .addInterceptor { chain ->
-                val request = chain.request().newBuilder()
-                    .header("User-Agent", "EmbySic/1.0")
-                    .build()
-                chain.proceed(request)
-            }
-            .build()
-    }
-
-    val discogsApi: DiscogsApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl(DISCOGS_BASE_URL)
-            .client(discogsOkHttpClient)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-            .create(DiscogsApiService::class.java)
     }
 
     private val neteaseOkHttpClient: OkHttpClient by lazy {
@@ -89,7 +66,7 @@ object RetrofitClient {
             return null
         }
 
-        if (embyApiService != null && serverUrl == currentServerUrl) return embyApiService
+        if (embyApiService != null && (serverUrl == currentServerUrl)) return embyApiService
 
         val baseUrl = if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"
         return try {
@@ -101,7 +78,7 @@ object RetrofitClient {
             embyApiService = newService
             currentServerUrl = serverUrl
             newService
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             null
         }
     }

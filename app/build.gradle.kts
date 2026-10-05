@@ -11,8 +11,8 @@ android {
         applicationId = "com.kuangru52.embysic"
         minSdk = 24
         targetSdk = 36
-        versionCode = 224
-        versionName = "2.24"
+        versionCode = 314
+        versionName = "3.14"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -27,8 +27,8 @@ android {
         }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
     buildFeatures {
         compose = true
@@ -48,10 +48,7 @@ android {
 androidComponents {
     onVariants { variant ->
         variant.outputs.forEach { output ->
-            val name = "Embysic-${output.versionName.get()}.apk"
-            if (output is com.android.build.api.variant.impl.VariantOutputImpl) {
-                output.outputFileName.set(name)
-            }
+            (output as? com.android.build.api.variant.impl.VariantOutputImpl)?.outputFileName?.set("Embysic-${output.versionName.get()}.apk")
         }
     }
 }
@@ -76,12 +73,13 @@ dependencies {
     implementation(libs.ktor.serialization.gson)
     
     // Coroutines & Lifecycle
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.androidx.lifecycle.viewmodel.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
 
     // Media3
     implementation(libs.media3.exoplayer)
+    implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.ui)
     implementation(libs.media3.session)
     implementation(libs.media3.datasource.okhttp)
@@ -96,7 +94,10 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    debugImplementation(libs.androidx.compose.ui.tooling)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.compose.material)
+    implementation(libs.backdrop)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.activity.compose)
 

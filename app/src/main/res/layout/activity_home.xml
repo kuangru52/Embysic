@@ -1,22 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/main_root"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    tools:targetApi="q">
 
-    <!-- 背景模糊层 (用于背景同步) -->
+    <!-- Layer 1 (底层): 背景图片/壁纸层 -->
     <ImageView
         android:id="@+id/ivBlurBackground"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:scaleType="centerCrop"
         android:alpha="0.6"
-        android:src="@drawable/bg_superman"
+        android:background="#111827"
         android:contentDescription="@null" />
 
-    <!-- 主内容区域：透明背景，允许 Activity 的背景穿透 -->
-    <FrameLayout
+    <!-- Layer 1.5 (内容层): 官方 Jetpack FragmentContainerView 主列表内容区域 -->
+    <androidx.fragment.app.FragmentContainerView
         android:id="@+id/fragment_container"
         android:layout_width="0dp"
         android:layout_height="0dp"
@@ -26,7 +28,7 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
-    <!-- 底部容器 -->
+    <!-- Layer 2 (中层/顶层底栏): 底部容器 -->
     <androidx.compose.ui.platform.ComposeView
         android:id="@+id/bottom_container"
         android:layout_width="match_parent"
@@ -34,9 +36,12 @@
         android:background="@android:color/transparent"
         app:layout_constraintBottom_toBottomOf="parent" />
 
-    <com.kuangru52.embysic.HeartLayout
-        android:id="@+id/heartLayout"
+    <!-- Layer 3 (最外层/调参浮窗): 调参 Overlay 容器 -->
+    <androidx.compose.ui.platform.ComposeView
+        android:id="@+id/tuning_container"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="match_parent"
+        android:background="@android:color/transparent"
+        android:visibility="gone" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

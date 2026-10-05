@@ -17,7 +17,7 @@
     <string name="not_playing">Not Playing</string>
     <string name="song_title">Song Title</string>
     <string name="artist_name">Artist Name</string>
-    <string name="search_hint">Search songs, artists…</string>
+    <string name="search_hint">Search songs, artists or albums…</string>
 
     <!-- Status and Messages -->
     <string name="loading_lyrics">Loading lyrics…</string>
@@ -32,12 +32,14 @@
     <string name="sync_failed">Sync failed</string>
     <string name="press_again_to_exit">Press again to exit</string>
     <string name="cancel">Cancel</string>
+    <string name="clear">Clear</string>
     <string name="delete_selected">Delete Selected</string>
     <string name="confirm_delete">Confirm Delete</string>
     <string name="delete_msg">Are you sure you want to permanently delete \"%1$s\"? This action cannot be undone.</string>
     <string name="batch_delete_msg">Are you sure you want to permanently delete the selected %1$d items? This action cannot be undone.</string>
-    <string name="deleted_success">Deleted</string>
+    <string name="deleted_success">Deleted: %1$s</string>
     <string name="delete_failed">Delete failed: %1$s</string>
+    <string name="load_failed">Load failed: %1$s</string>
     <string name="sync_library_started">Library sync started</string>
     <string name="syncing_library">Syncing library...</string>
     <string name="login_error_empty">Please enter server address and username</string>
@@ -48,4 +50,37 @@
     <string name="repeat_one">Repeat One</string>
     <string name="shuffle">Shuffle</string>
     <string name="repeat_off">Repeat Off</string>
+    <string name="queue_cleared_playing">Cleared queue and playing: %1$s</string>
+
+    <!-- Settings -->
+    <string name="title_settings">Settings</string>
+    <string name="theme_setting">Appearance Theme</string>
+    <string name="theme_system">System</string>
+    <string name="theme_dark">Dark Mode</string>
+    <string name="theme_light">Light Mode</string>
+    <string name="theme_and_wallpaper">Theme &amp; Wallpaper</string>
+    <string name="wallpaper_mode">Background Wallpaper</string>
+    <string name="wallpaper_none">None</string>
+    <string name="wallpaper_bing">Daily Bing</string>
+    <string name="wallpaper_local">Local Loop</string>
+    <string name="wallpaper_blur">Wallpaper Blur</string>
+    <string name="select_local_images">Select Local Images</string>
+    <string name="selected_images_count">%1$d images selected (1hr loop)</string>
+    <string name="no_images_selected">No images selected</string>
+    <string name="set_local_wallpapers_success">Set %1$d local wallpapers (1hr loop)</string>
+    <string name="language_setting">App Language</string>
+    <string name="language_system">System</string>
+    <string name="language_zh">简体中文</string>
+    <string name="language_en">English</string>
+    <string name="developer_mode">Developer Mode</string>
+    <string name="developer_mode_desc">Enable advanced experimental options</string>
+    <string name="advanced_debugging">Advanced &amp; Debugging</string>
+    <string name="about_app">About App</string>
+    <string name="about_and_donate">About &amp; Support</string>
+    <string name="about_and_donate_desc">Support developer &amp; feedback</string>
+    <string name="dev_mode_enabled">Developer mode enabled!</string>
+    <string name="dev_mode_disabled">Developer mode disabled</string>
+    <string name="dev_mode_clicks_remaining">Tap %1$d more times to enter developer mode</string>
+    <string name="update_available">Update</string>
+    <string name="settings_migrated">Settings have been migrated to auto-optimization</string>
 </resources>

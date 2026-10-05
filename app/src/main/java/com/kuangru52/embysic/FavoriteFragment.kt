@@ -1,31 +1,26 @@
 package com.kuangru52.embysic
 
-import android.os.Bundle
 import android.content.res.Configuration
-import android.graphics.RectF
-import android.util.TypedValue
+import android.os.Build
+import android.os.Bundle
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
+import android.view.animation.Animation
+import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.app.AppCompatActivity
-import android.view.animation.Animation
-import android.view.animation.AnimationUtils
+import androidx.compose.ui.platform.ComposeView
+import androidx.core.graphics.drawable.toDrawable
 import androidx.fragment.app.Fragment
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.session.MediaController
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
 import kotlinx.coroutines.launch
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 
 @UnstableApi
 class FavoriteFragment : Fragment() {
@@ -34,10 +29,15 @@ class FavoriteFragment : Fragment() {
         if ((activity as? HomeActivity)?.isSwipingBack == true) {
             return object : Animation() {}.apply { duration = 0 }
         }
+        if (nextAnim != 0) {
+            try {
+                return android.view.animation.AnimationUtils.loadAnimation(context, nextAnim)
+            } catch (_: Exception) {}
+        }
         return super.onCreateAnimation(transit, enter, nextAnim)
     }
 
-    private lateinit var ivFragmentBackground: android.widget.ImageView
+    private lateinit var ivFragmentBackground: ImageView
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: LibraryAdapter
@@ -48,32 +48,28 @@ class FavoriteFragment : Fragment() {
     private var userId: String = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
-
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        val view = inflater.inflate(R.layout.fragment_recent, container, false)
-        ivFragmentBackground = view.findViewById(R.id.ivFragmentBackground)
-        recyclerView = view.findViewById(R.id.rvRecent)
-        progressBar = view.findViewById(R.id.progressBar)
-        
-        // 沉浸式：设置 PaddingTop
-        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(0, systemBars.top, 0, 0)
-            insets
+        get() {
+            val ctx = context ?: return ""
+            return "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceId(ctx)}\", DeviceId=\"${MediaItemUtils.getDeviceId(ctx)}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
         }
-        
-        // 立即执行同步
-        syncBackground()
 
-        setupRecyclerView()
-        loadPrefs()
-        initApiService()
-        loadFavoriteItems()
-        
-        syncBackground() // 页面创建时立即同步背景状态
-        
-        return view
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        val ctx = requireContext()
+        val composeView = ComposeView(ctx)
+        composeView.setContent {
+            RecentFragmentContent { _, rv, bg, pb ->
+                ivFragmentBackground = bg
+                recyclerView = rv
+                progressBar = pb
+
+                syncBackground()
+                setupRecyclerView()
+                loadPrefs()
+                initApiService()
+                loadFavoriteItems()
+            }
+        }
+        return composeView
     }
 
     private val playerListener = object : androidx.media3.common.Player.Listener {
@@ -86,208 +82,175 @@ class FavoriteFragment : Fragment() {
         }
     }
 
-    private fun syncBackground() {
-        if (!isAdded) return
+    internal fun syncBackground() {
+        if (!isAdded || !::ivFragmentBackground.isInitialized) return
 
-        // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
-        val isTabletLand = (resources.configuration.smallestScreenWidthDp >= 600) &&
-                          resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val homeActivity = activity as? HomeActivity
+        if (WallpaperManager.getMode(requireContext()) == "none") {
+            val isDark = homeActivity?.isAppDark() ?: false
+            val noneColorInt = if (isDark) android.graphics.Color.rgb(18, 18, 24) else android.graphics.Color.rgb(248, 250, 252)
+            ivFragmentBackground.setImageDrawable(noneColorInt.toDrawable())
+            ivFragmentBackground.alpha = 1.0f
+            ivFragmentBackground.visibility = View.VISIBLE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                ivFragmentBackground.setRenderEffect(null)
+            }
+            return
+        }
 
-        if (isTabletLand) {
+        val isTabletLandscape = ((resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE)
+                && (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
+
+        if (isTabletLandscape) {
             ivFragmentBackground.visibility = View.GONE
             return
         }
 
-        val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
-        if (activityBg != null && activityBg.drawable != null) {
-            ivFragmentBackground.setImageDrawable(activityBg.drawable)
-            ivFragmentBackground.alpha = activityBg.alpha
+        val activityBg = homeActivity?.findViewById<ImageView>(R.id.ivBlurBackground)
+        if ((activityBg != null) && (activityBg.drawable != null)) {
+            ivFragmentBackground.setImageDrawable(activityBg.drawable.constantState?.newDrawable() ?: activityBg.drawable)
+            ivFragmentBackground.alpha = 1.0f
             ivFragmentBackground.visibility = View.VISIBLE
+            homeActivity.applyWallpaperBlur(ivFragmentBackground)
+        } else {
+            lifecycleScope.launch {
+                val ctx = context ?: return@launch
+                val source = WallpaperManager.getActiveWallpaperSource(ctx)
+                ivFragmentBackground.load(source) {
+                    crossfade(enable = false)
+                    allowHardware(enable = false)
+                }
+                ivFragmentBackground.alpha = 1.0f
+                ivFragmentBackground.visibility = View.VISIBLE
+                homeActivity?.applyWallpaperBlur(ivFragmentBackground)
+            }
         }
     }
 
     private fun updatePlaybackState(mediaItem: MediaItem?) {
-        val extras = mediaItem?.mediaMetadata?.extras
-        val albumId = extras?.getString("album_id")
-        val path = extras?.getString("path")
-        adapter.setCurrentMediaId(mediaItem?.mediaId, albumId, path)
+        if (!::adapter.isInitialized) return
+        val mediaId = mediaItem?.mediaId
+        val albumId = mediaItem?.mediaMetadata?.extras?.getString("album_id")
+        val path = mediaItem?.mediaMetadata?.extras?.getString("path")
+        adapter.setCurrentMediaId(mediaId, albumId, path)
     }
 
-    override fun onStart() {
-        super.onStart()
-        val controller = (activity as? HomeActivity)?.mediaController
-        controller?.let { 
-            it.addListener(playerListener)
-            updatePlaybackState(it.currentMediaItem)
-        }
+    private fun loadPrefs() {
+        val ctx = context ?: return
+        val prefs = ctx.getSharedPreferences("embysic_prefs", android.content.Context.MODE_PRIVATE)
+        serverUrl = prefs.getString("server_url", "") ?: ""
+        accessToken = prefs.getString("access_token", "") ?: ""
+        userId = prefs.getString("user_id", "") ?: ""
     }
 
-    override fun onStop() {
-        super.onStop()
-        (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
+    private fun initApiService() {
+        val ctx = context ?: return
+        apiService = RetrofitClient.getEmbyApiService(ctx)
     }
 
     private fun setupRecyclerView() {
         adapter = LibraryAdapter(
-            onItemClick = { item -> playMusic(item, adapter.items) },
-            onItemDoubleClick = { replaceFragment(RecentFragment()) },
-            onItemDelete = { item -> showDeleteConfirmation(item) }
+            onItemClick = { item -> playMusic(item) },
+            onItemDelete = { item -> removeFavorite(item) },
         )
         recyclerView.layoutManager = LinearLayoutManager(context)
         recyclerView.adapter = adapter
     }
 
-    private fun showDeleteConfirmation(item: EmbyItem) {
-        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_custom_confirm, null)
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.Theme_Embysic_Dialog)
-            .setView(dialogView)
-            .create()
-
-        dialogView.findViewById<android.widget.TextView>(R.id.dialogTitle).text = getString(R.string.confirm_delete)
-        dialogView.findViewById<android.widget.TextView>(R.id.dialogMessage).text = getString(R.string.delete_msg, item.Name)
-        
-        dialogView.findViewById<android.widget.TextView>(R.id.btnCancel).setOnClickListener {
-            dialog.dismiss()
-        }
-        
-        dialogView.findViewById<android.widget.TextView>(R.id.btnConfirm).setOnClickListener {
-            dialog.dismiss()
-            performDelete(item)
-        }
-
-        dialog.show()
-
-        val dm = resources.displayMetrics
-        val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
-        val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
-        val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
-        val px10dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, dm)
-
-        val width = (dm.widthPixels * 0.82).toInt()
-        dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            val container = (activity as? HomeActivity)?.findViewById<View>(R.id.fragment_container)
-            
-            dialogView.post {
-                val dialogLoc = IntArray(2)
-                dialogView.getLocationOnScreen(dialogLoc)
-                val containerLoc = IntArray(2)
-                container?.getLocationOnScreen(containerLoc)
-                
-                val relativeLeft = (dialogLoc[0] - containerLoc[0]).toFloat()
-                val relativeTop = (dialogLoc[1] - containerLoc[1]).toFloat()
-                
-                val dialogRect = RectF(
-                    relativeLeft,
-                    relativeTop,
-                    relativeLeft + dialogView.width,
-                    relativeTop + dialogView.height
-                )
-                
-                (activity as? HomeActivity)?.applyDialogEffect(dialogRect, px38dp, pxNeg60dp, px20dpRefHeight, px10dpBlurRadius)
-            }
-            
-            dialog.setOnDismissListener {
-                (activity as? HomeActivity)?.clearDialogEffect()
-            }
-        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            dialog.window?.attributes?.let {
-                it.blurBehindRadius = 64
-                dialog.window?.attributes = it
-            }
-        }
-    }
-
-    private fun performDelete(item: EmbyItem) {
-        val service = apiService ?: return
-        lifecycleScope.launch {
-            try {
-                service.deleteItem(item.Id, authHeader)
-                Toast.makeText(context, R.string.deleted_success, Toast.LENGTH_SHORT).show()
-                loadFavoriteItems()
-            } catch (e: Exception) {
-                Toast.makeText(context, getString(R.string.delete_failed, e.message), Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun replaceFragment(fragment: Fragment) {
-        parentFragmentManager.beginTransaction()
-            .setCustomAnimations(android.R.anim.fade_in, android.R.anim.fade_out)
-            .replace(R.id.fragment_container, fragment)
-            .addToBackStack(null)
-            .commit()
-    }
-
-    private fun playMusic(item: EmbyItem, allItems: List<EmbyItem>) {
-        val controller = (activity as? HomeActivity)?.mediaController ?: return
-        val currentMediaItem = controller.currentMediaItem
-        val currentId = currentMediaItem?.mediaId
-
-        val isSameSong = item.Id == currentId
-        if (isSameSong) {
-            controller.play()
-        } else {
-            // 构建一个只包含当前歌曲的列表，然后通过 updatePlaylistByMode 自动拉取同文件夹列表
-            val mediaItem = MediaItemUtils.buildMediaItem(requireContext(), item, serverUrl, accessToken, userId)
-            controller.setMediaItem(mediaItem)
-            
-            // 断点续听
-            val lastPositionTicks = item.UserData?.PlaybackPositionTicks ?: 0L
-            if (lastPositionTicks > 0) {
-                controller.seekTo(lastPositionTicks / 10000)
-            }
-            
-            controller.prepare()
-            controller.play()
-            
-            // 无论当前模式是什么，都根据当前模式更新为同文件夹或随机列表
-            (activity as? HomeActivity)?.updatePlaylistByMode(controller.shuffleModeEnabled)
-        }
-
-        // 播放后自动弹出播放页面
-        (activity as? HomeActivity)?.showPlayer()
-        (activity as? HomeActivity)?.showPlayer()
-    }
-
-    private fun loadPrefs() {
-        val prefs = requireContext().getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE)
-        serverUrl = prefs.getString("server_url", "") ?: ""
-        accessToken = prefs.getString("access_token", "") ?: ""
-        userId = prefs.getString("userId", "") ?: "" // 修正: 获取正确的 userId
-        if (userId.isEmpty()) {
-            userId = prefs.getString("user_id", "") ?: ""
-        }
-    }
-
-    private fun initApiService() {
-        apiService = RetrofitClient.getEmbyApiService(requireContext())
-    }
-
     private fun loadFavoriteItems() {
-        val service = apiService ?: return
-        lifecycleScope.launch {
+        if (userId.isEmpty() || accessToken.isEmpty()) return
+
+        // 1. 零延迟优先渲染内存收藏数据 (0ms 瞬间呈现，零转圈)
+        MemoryCache.favoriteItems?.let { cached ->
+            if (cached.isNotEmpty()) {
+                val ctx = context ?: return@let
+                if (::adapter.isInitialized) {
+                    adapter.submitList(cached, ctx)
+                }
+                if (::progressBar.isInitialized) progressBar.visibility = View.GONE
+            }
+        }
+
+        if (MemoryCache.favoriteItems.isNullOrEmpty() && ::progressBar.isInitialized) {
             progressBar.visibility = View.VISIBLE
+        }
+
+        lifecycleScope.launch {
             try {
-                // 优先使用 Filters=IsFavorite 让服务端过滤，减少带宽消耗
-                val response = service.getItems(
+                val response = apiService?.getItems(
                     userId = userId,
                     includeItemTypes = "Audio",
                     recursive = true,
-                    fields = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,Filename,SortName,ChildCount,RecursiveItemCount,ParentId,HasLyrics",
+                    sortBy = "SortName",
                     auth = authHeader,
-                    // 注意：Emby API 某些版本可能不支持 Filters，此时会在下面手动过滤
                 )
-                // 客户端二次过滤确保准确性
-                val favorites = response.Items.filter { it.UserData?.IsFavorite == true }
-                adapter.submitList(favorites, context)
+                val allItems = response?.Items ?: emptyList()
+                val favoriteItems = allItems.filter { it.UserData?.IsFavorite == true }
+                MemoryCache.favoriteItems = favoriteItems
+
+                val ctx = context ?: return@launch
+                if (!::adapter.isInitialized) return@launch
+                adapter.submitList(favoriteItems, ctx)
+                updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
             } catch (e: Exception) {
-                // 静默处理加载失败
+                Log.e("FavoriteFragment", "Error loading favorites", e)
             } finally {
-                progressBar.visibility = View.GONE
+                if (::progressBar.isInitialized) progressBar.visibility = View.GONE
             }
         }
+    }
+
+    private fun playMusic(item: EmbyItem) {
+        val controller = (activity as? HomeActivity)?.mediaController ?: return
+        
+        val currentRepeatMode = controller.repeatMode
+        val currentShuffleMode = controller.shuffleModeEnabled
+
+        val currentMediaItem = controller.currentMediaItem
+        val currentId = currentMediaItem?.mediaId
+        
+        val isSameSong = item.Id == currentId
+        
+        if (isSameSong) {
+            controller.play()
+        } else {
+            val mediaItem = MediaItemUtils.buildMediaItem(requireContext(), item, serverUrl, accessToken, userId)
+            controller.setMediaItem(mediaItem)
+            
+            controller.prepare()
+            controller.play()
+
+            (activity as? HomeActivity)?.updatePlaylistByMode(controller.shuffleModeEnabled)
+        }
+
+        controller.repeatMode = currentRepeatMode
+        controller.shuffleModeEnabled = currentShuffleMode
+        (activity as? HomeActivity)?.showPlayer()
+    }
+
+    private fun removeFavorite(item: EmbyItem) {
+        val service = apiService ?: return
+        lifecycleScope.launch {
+            try {
+                service.unmarkFavorite(userId, item.Id, authHeader)
+                Toast.makeText(context, "已取消收藏: ${item.Name}", Toast.LENGTH_SHORT).show()
+                loadFavoriteItems()
+            } catch (e: Exception) {
+                Log.e("FavoriteFragment", "Error removing favorite", e)
+                Toast.makeText(context, "操作失败: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        (activity as? HomeActivity)?.mediaController?.addListener(playerListener)
+        updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
+        syncBackground()
+    }
+
+    override fun onPause() {
+        (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
+        super.onPause()
     }
 }

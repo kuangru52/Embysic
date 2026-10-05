@@ -12,8 +12,8 @@
         <item name="colorSecondaryContainer">@color/secondary_container_dark</item>
         <item name="colorOnSecondaryContainer">@color/on_secondary_container_dark</item>
 
-        <!-- 深色模式也使用 Superman 渐变（或者你可以单独定义深色渐变） -->
-        <item name="android:windowBackground">@drawable/bg_superman</item>
+        <!-- 深色模式也使用 Superman 渐变 -->
+        <item name="android:windowBackground">@android:color/black</item>
         <item name="colorSurface">@android:color/transparent</item>
         <item name="colorOnSurface">@color/on_surface_dark</item>
     </style>

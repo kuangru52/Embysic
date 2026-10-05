@@ -9,6 +9,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.*
 import androidx.media3.session.DefaultMediaNotificationProvider
@@ -17,6 +18,7 @@ import coil.request.ImageRequest
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.*
+import kotlin.time.Duration.Companion.seconds
 import java.io.File
 
 @UnstableApi
@@ -44,6 +46,10 @@ class PlaybackService : MediaSessionService() {
         
         val cache = CacheManager.getCache(this)
         val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Embysic/${BuildConfig.VERSION_NAME}")
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
         cacheDataSourceFactory = CacheDataSource.Factory()
             .setCache(cache)
             .setUpstreamDataSourceFactory(httpDataSourceFactory)
@@ -52,9 +58,24 @@ class PlaybackService : MediaSessionService() {
         embyApi = RetrofitClient.getEmbyApiService(this)
         neteaseApi = RetrofitClient.neteaseApi
 
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                45_000, // Min buffer 45s (increased from 30s)
+                90_000, // Max buffer 90s (increased from 60s)
+                5_000,  // Buffer for playback 5s (increased from 2.5s)
+                10_000  // Buffer for playback after rebuffer 10s (increased from 5s)
+            )
+            .setBackBuffer(30_000, true) // Add 30s back buffer for quick rewinds
+            .build()
+
+        val extractorsFactory = androidx.media3.extractor.DefaultExtractorsFactory()
+            .setConstantBitrateSeekingEnabled(true)
+            .setConstantBitrateSeekingAlwaysEnabled(true)
+
         exoPlayer = ExoPlayer.Builder(this)
             .setAudioAttributes(AudioAttributes.DEFAULT, true)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(cacheDataSourceFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(this, extractorsFactory).setDataSourceFactory(cacheDataSourceFactory))
+            .setLoadControl(loadControl)
             .build()
 
         wrappedPlayer = object : ForwardingPlayer(exoPlayer) {
@@ -166,9 +187,7 @@ class PlaybackService : MediaSessionService() {
                 }
             } catch (_: Exception) {}
 
-            if (album.isNotEmpty()) {
-                // 已移除 Discogs 调用，不再尝试从 Discogs 获取封面
-            }
+
         }
     }
 
@@ -307,7 +326,7 @@ class PlaybackService : MediaSessionService() {
                         }
                     }
                 }
-                delay(10000)
+                delay(10.seconds)
             }
         }
     }

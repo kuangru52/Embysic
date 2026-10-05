@@ -1,13 +1,12 @@
 package com.kuangru52.embysic
 
-import android.net.Uri
-import androidx.core.net.toUri
-import androidx.core.content.edit
-import android.os.Bundle
 import android.content.Context
 import android.graphics.Bitmap
+import android.os.Bundle
 import android.provider.Settings
 import androidx.annotation.OptIn
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
@@ -20,6 +19,7 @@ object MediaItemUtils {
     /**
      * 获取设备唯一 ID，用于 Emby 会话识别
      */
+    @Suppress("HardwareIds")
     fun getDeviceId(context: Context): String {
         return Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) ?: "123456"
     }
@@ -27,22 +27,21 @@ object MediaItemUtils {
     /**
      * 获取设备市场名称 (如 "Xiaomi Pad 6S Pro 12.4") 而不是认证型号 (如 "24018RPACC")
      */
+    @Suppress("PrivateApi", "DiscouragedPrivateApi")
     fun getDeviceName(context: Context): String {
         var name = ""
         
-        // 1. 优先从系统设置获取用户定义的设备名称 (通常就是商品名)
         try {
             name = Settings.Global.getString(context.contentResolver, "device_name") ?: ""
         } catch (_: Exception) {}
 
         if (name.isBlank()) {
-            // 2. 尝试通过反射获取 OEM 特有的市场名称属性
             val props = arrayOf(
                 "ro.product.odm.marketname",
                 "ro.product.marketname",
                 "ro.config.marketing_name",
                 "ro.product.model.name",
-                "ro.product.nickname"
+                "ro.product.nickname",
             )
             try {
                 val systemProperties = Class.forName("android.os.SystemProperties")
@@ -57,7 +56,6 @@ object MediaItemUtils {
             } catch (_: Exception) {}
         }
 
-        // 2.5 如果仍为空，或者为系统默认名称，尝试读取 /vendor/odm/etc/build.prop
         if (name.isBlank()) {
             try {
                 val file = File("/vendor/odm/etc/build.prop")
@@ -77,7 +75,6 @@ object MediaItemUtils {
             } catch (_: Exception) {}
         }
 
-        // 3. 最后兜底使用 Build.MODEL
         if (name.isBlank()) {
             name = android.os.Build.MODEL
         }
@@ -87,44 +84,57 @@ object MediaItemUtils {
     // 整个 App 会话期间的源码播放开关，冷启动自动重置为 false
     var isForceDirectMode = false
 
+    @Suppress("UNUSED_PARAMETER")
     @OptIn(UnstableApi::class)
     fun buildMediaItem(
         context: Context,
         song: EmbyItem,
         serverUrl: String,
         accessToken: String,
-        userId: String, //userId 虽然在此处未使用，但保留参数以维持与旧版 API 的兼容性
+        userId: String,
         startMs: Long = 0L,
         endMs: Long = 0L,
         forceDirect: Boolean = isForceDirectMode,
         overrideSessionId: String? = null,
-        existingMetadata: MediaMetadata? = null
+        existingMetadata: MediaMetadata? = null,
     ): MediaItem {
         val baseUrl = if (serverUrl.endsWith("/")) serverUrl else "$serverUrl/"
         val mediaSourceId = song.MediaSources?.firstOrNull()?.Id ?: song.Id
         val sessionId = overrideSessionId ?: UUID.randomUUID().toString().replace("-", "")
         val deviceId = getDeviceId(context)
 
-        val streamUrl = if (forceDirect) {
-            "${baseUrl}emby/Audio/${song.Id}/stream?api_key=$accessToken&Static=true&MediaSourceId=$mediaSourceId&PlaySessionId=$sessionId"
+        val finalUrl = if (forceDirect) {
+            "${baseUrl}emby/Audio/${song.Id}/stream?api_key=$accessToken&Static=true&MediaSourceId=$mediaSourceId&PlaySessionId=$sessionId" +
+                    if (startMs > 0) "&StartPositionTicks=${startMs * 10000}" else ""
         } else {
-            "${baseUrl}emby/Audio/${song.Id}/stream.aac?api_key=$accessToken" +
+            "${baseUrl}emby/Audio/${song.Id}/stream?api_key=$accessToken" +
                     "&DeviceId=$deviceId" +
+                    "&MediaSourceId=$mediaSourceId" +
+                    "&PlaySessionId=$sessionId" +
                     "&MaxStreamingBitrate=256000" +
                     "&AudioBitrate=256000" +
                     "&AudioCodec=aac" +
-                    "&Static=true" +
-                    "&MediaSourceId=$mediaSourceId" +
-                    "&PlaySessionId=$sessionId"
+                    "&Container=aac" +
+                    "&Static=false" +
+                    "&EnableDirectPlay=false" +
+                    "&EnableDirectStream=false" +
+                    if (startMs > 0) "&StartPositionTicks=${startMs * 10000}" else ""
         }
+
+        val streamUrl = if (song.IsFolder) "" else finalUrl
 
         val durationMs = if (endMs > startMs) (endMs - startMs) else ((song.RunTimeTicks ?: 0L) / 10000)
         val hasPrimary = song.ImageTags?.containsKey("Primary") == true
-        val imageId = if (hasPrimary) song.Id else (song.AlbumId ?: song.Id)
-        val artworkUrl = "${serverUrl.trimEnd('/')}/emby/Items/$imageId/Images/Primary?MaxWidth=500&api_key=$accessToken"
+        val imageId = when {
+            hasPrimary -> song.Id
+            !song.AlbumId.isNullOrEmpty() -> song.AlbumId
+            !song.ParentId.isNullOrEmpty() -> song.ParentId
+            else -> song.Id
+        }
+        val artworkUrl = "${serverUrl.trimEnd('/')}/emby/Items/$imageId/Images/Primary?MaxWidth=600&api_key=$accessToken"
 
         val source = song.MediaSources?.firstOrNull()
-        val mimeType = if (forceDirect) {
+        val mimeType: String? = if (forceDirect) {
             when (source?.Container?.lowercase()) {
                 "flac" -> MimeTypes.AUDIO_FLAC
                 "mp3" -> MimeTypes.AUDIO_MPEG
@@ -132,10 +142,10 @@ object MediaItemUtils {
                 "ogg" -> MimeTypes.AUDIO_OGG
                 "m4a", "aac" -> MimeTypes.AUDIO_AAC
                 "opus" -> MimeTypes.AUDIO_OPUS
-                else -> MimeTypes.AUDIO_UNKNOWN
+                else -> null
             }
         } else {
-            MimeTypes.AUDIO_AAC
+            null // 转码模式下由 ExoPlayer 自动嗅探格式，避免 ID3/ADTS 报 MimeType 错误
         }
 
         val extras = Bundle().apply {
@@ -157,10 +167,8 @@ object MediaItemUtils {
             putLong("real_start_ms", startMs)
             putString("parent_id", song.ParentId ?: song.AlbumId)
             
-            // 添加艺术家 ID，优先取第一个
             val artistId = song.ArtistItems?.firstOrNull()?.Id ?: song.AlbumArtists?.firstOrNull()?.Id
             putString("artist_id", artistId)
-            // 存入 image_url 供 TabletPlayerHandler 直接使用
             putString("image_url", artworkUrl)
         }
 
@@ -177,24 +185,26 @@ object MediaItemUtils {
             .setExtras(extras)
             .build()
 
-        return MediaItem.Builder()
+        val builder = MediaItem.Builder()
             .setUri(streamUrl.toUri())
             .setMediaId(if (startMs > 0) "${song.Id}_$startMs" else song.Id)
-            .setMimeType(mimeType)
             .setClippingConfiguration(
                 MediaItem.ClippingConfiguration.Builder()
                     .setStartPositionMs(startMs)
                     .apply { if (endMs > startMs) setEndPositionMs(endMs) }
-                    .build()
+                    .build(),
             )
             .setMediaMetadata(metadata)
-            .build()
+
+        mimeType?.let { builder.setMimeType(it) }
+
+        return builder.build()
     }
 
     fun saveCoverToFile(context: Context, itemId: String, bitmap: Bitmap): String? {
         val dir = File(context.cacheDir, "covers")
         if (!dir.exists()) dir.mkdirs()
-        val file = File(dir, "${itemId}.jpg")
+        val file = File(dir, "$itemId.jpg")
         return try {
             FileOutputStream(file).use {
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it)
@@ -214,5 +224,15 @@ object MediaItemUtils {
         val stream = java.io.ByteArrayOutputStream()
         bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
         return stream.toByteArray()
+    }
+
+    @OptIn(UnstableApi::class)
+    fun seekToPosition(player: androidx.media3.common.Player, targetMs: Long) {
+        val extras = player.currentMediaItem?.mediaMetadata?.extras
+        val injectDuration = extras?.getLong("duration_ms") ?: 0L
+        val dur = if (player.duration > 0) player.duration else injectDuration
+        val safeTargetMs = if (dur > 0) targetMs.coerceIn(0L, dur) else targetMs.coerceAtLeast(0L)
+
+        player.seekTo(safeTargetMs)
     }
 }

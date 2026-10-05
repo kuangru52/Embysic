@@ -17,7 +17,7 @@
     <string name="not_playing">未在播放</string>
     <string name="song_title">歌曲名</string>
     <string name="artist_name">歌手名</string>
-    <string name="search_hint">搜索歌曲、艺人...</string>
+    <string name="search_hint">搜索歌曲、歌手或专辑...</string>
 
     <!-- 状态与消息 -->
     <string name="loading_lyrics">正在加载歌词…</string>
@@ -31,6 +31,17 @@
     <string name="removed_from_favorites">已取消收藏</string>
     <string name="sync_failed">同步失败</string>
     <string name="press_again_to_exit">再按一次退出</string>
+    <string name="cancel">取消</string>
+    <string name="clear">清除</string>
+    <string name="delete_selected">删除选中项</string>
+    <string name="confirm_delete">确认删除</string>
+    <string name="delete_msg">确定要从媒体库中永久删除 \"%1$s\" 吗？此操作不可恢复。</string>
+    <string name="batch_delete_msg">确定要从媒体库中永久删除选中的 %1$d 个项目吗？此操作不可恢复。</string>
+    <string name="deleted_success">已删除: %1$s</string>
+    <string name="delete_failed">删除失败: %1$s</string>
+    <string name="load_failed">加载失败: %1$s</string>
+    <string name="sync_library_started">正在同步媒体库...</string>
+    <string name="syncing_library">正在同步媒体库…</string>
     <string name="login_error_empty">请输入服务器地址和用户名</string>
     <string name="login_success">登录成功</string>
     <string name="login_failed_no_token">登录失败：未获取到访问令牌</string>
@@ -39,11 +50,37 @@
     <string name="repeat_one">单曲循环</string>
     <string name="shuffle">随机播放</string>
     <string name="repeat_off">顺序播放</string>
-    <string name="confirm_delete">确认删除</string>
-    <string name="delete_msg">确定要永久删除 \"%1$s\" 吗？\n此操作不可撤销。</string>
-    <string name="batch_delete_msg">确定要永久删除选中的 %1$d 个项目吗？\n此操作不可撤销。</string>
-    <string name="deleted_success">已删除</string>
-    <string name="delete_failed">删除失败: %1$s</string>
-    <string name="sync_library_started">正在同步媒体库...</string>
-    <string name="syncing_library">正在同步媒体库…</string>
+    <string name="queue_cleared_playing">已清空队列并播放：％1$s</string>
+
+    <!-- 设置 -->
+    <string name="title_settings">设置</string>
+    <string name="theme_setting">外观主题</string>
+    <string name="theme_system">跟随系统</string>
+    <string name="theme_dark">深色模式</string>
+    <string name="theme_light">浅色模式</string>
+    <string name="theme_and_wallpaper">主题与壁纸</string>
+    <string name="wallpaper_mode">背景壁纸模式</string>
+    <string name="wallpaper_none">无壁纸</string>
+    <string name="wallpaper_bing">每日 Bing</string>
+    <string name="wallpaper_local">本地轮播</string>
+    <string name="wallpaper_blur">壁纸高斯模糊度</string>
+    <string name="select_local_images">选择本地图片</string>
+    <string name="selected_images_count">已选择 %1$d 张 (每1小时轮播)</string>
+    <string name="no_images_selected">未选择图片</string>
+    <string name="set_local_wallpapers_success">已设置 %1$d 张本地壁纸（1小时轮播）</string>
+    <string name="language_setting">应用语言</string>
+    <string name="language_system">跟随系统</string>
+    <string name="language_zh">简体中文</string>
+    <string name="language_en">English</string>
+    <string name="developer_mode">开发者模式</string>
+    <string name="developer_mode_desc">开启高级实验性功能与调试选项</string>
+    <string name="advanced_debugging">高级与调试</string>
+    <string name="about_app">关于应用</string>
+    <string name="about_and_donate">关于与赞赏</string>
+    <string name="about_and_donate_desc">支持开发者与交流反馈</string>
+    <string name="dev_mode_enabled">已开启开发者模式！</string>
+    <string name="dev_mode_disabled">已关闭开发者模式</string>
+    <string name="dev_mode_clicks_remaining">还需点击 %1$d 次进入开发者模式</string>
+    <string name="update_available">可更新</string>
+    <string name="settings_migrated">设置项已迁移为自动优化</string>
 </resources>

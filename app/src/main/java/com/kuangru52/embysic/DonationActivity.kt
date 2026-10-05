@@ -1,315 +1,108 @@
 package com.kuangru52.embysic
 
 import android.content.ContentValues
+import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.Image
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.net.toUri
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.util.UnstableApi
+import coil.load
+import jp.wasabeef.transformers.coil.BlurTransformation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
 
-import androidx.compose.runtime.*
-import androidx.compose.ui.draw.clip
-
+@OptIn(UnstableApi::class)
 class DonationActivity : ComponentActivity() {
 
     private val aliPayCode = "a6x04287fr0sxv9zqrc0m31"
     private val telegramUrl = "https://t.me/+FFEviJJq9GkyOWFl"
     private val qqGroupId = "1027610757"
 
-    private var hasUpdate by mutableStateOf(false)
-
     override fun onCreate(savedInstanceState: Bundle?) {
-        // 判断是否为平板
         val isTablet = (resources.configuration.screenLayout and Configuration.SCREENLAYOUT_SIZE_MASK) >= Configuration.SCREENLAYOUT_SIZE_LARGE
-        if (isTablet) {
-            // 平板：默认横屏，但允许旋转
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+        requestedOrientation = if (isTablet) {
+            ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         } else {
-            // 手机：强制竖屏
-            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         }
 
         super.onCreate(savedInstanceState)
 
-        // 沉浸式状态栏
+        @Suppress("DEPRECATION")
         window.apply {
             clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
             addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            @Suppress("DEPRECATION")
             decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
             statusBarColor = AndroidColor.TRANSPARENT
         }
 
-        checkUpdate()
-
         setContent {
-            DonationScreen()
-        }
-    }
-
-    private fun checkUpdate() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val latestRelease = RetrofitClient.githubApi.getLatestRelease()
-                val latestVersion = latestRelease.tag_name.replace("v", "")
-                val currentVersion = BuildConfig.VERSION_NAME
-                if (isNewerVersion(currentVersion, latestVersion)) {
-                    withContext(Dispatchers.Main) {
-                        hasUpdate = true
-                    }
-                }
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    private fun isNewerVersion(current: String, latest: String): Boolean {
-        val currentParts = current.split(".").mapNotNull { it.toIntOrNull() }
-        val latestParts = latest.split(".").mapNotNull { it.toIntOrNull() }
-        val maxLength = maxOf(currentParts.size, latestParts.size)
-        for (i in 0 until maxLength) {
-            val curr = currentParts.getOrElse(i) { 0 }
-            val late = latestParts.getOrElse(i) { 0 }
-            if (late > curr) return true
-            if (curr > late) return false
-        }
-        return false
-    }
-
-    @Composable
-    fun DonationScreen() {
-        Box(modifier = Modifier.fillMaxSize()) {
-            // 背景图
-            Image(
-                painter = painterResource(id = R.drawable.donate),
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
-            
-            // 蒙层
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.3f))
-            )
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+            DonationScreen(
+                onAlipayClick = { donateToAlipaySafe() },
+                onWeChatClick = { saveWeChatCodeToGallery() },
+                onTelegramClick = { openTelegram() },
             ) {
-                Text(
-                    text = "愿 Embysic 能在您忙碌的生活里，点亮片刻温暖的时光。\n\n我用彻夜未眠的满腔热血，希望能换您一杯咖啡的赞赏。\n\n捐赠全凭自愿，不捐赠也不会影响任何功能使用。\n\n愿每一段旋律，都能治愈平凡日常，让您重新爱上音乐。",
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    lineHeight = 28.sp,
-                    textAlign = TextAlign.Center,
-                    fontWeight = FontWeight.Medium
-                )
-
-                Spacer(modifier = Modifier.height(48.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(0.9f),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Button(
-                        onClick = { donateToAlipaySafe(aliPayCode) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF108EE9).copy(alpha = 0.9f)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text(
-                            text = "支付宝捐赠",
-                            fontSize = 16.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
-
-                    Button(
-                        onClick = { saveWeChatCodeToGallery() },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF07C160).copy(alpha = 0.9f)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text(
-                            text = "微信捐赠",
-                            fontSize = 16.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(0.9f),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Button(
-                        onClick = { openTelegram(telegramUrl) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF2196F3).copy(alpha = 0.9f)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text(
-                            text = "Telegram群",
-                            fontSize = 16.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
-
-                    Button(
-                        onClick = { joinQQGroup(qqGroupId) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(56.dp),
-                        shape = RoundedCornerShape(28.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF12B7F5).copy(alpha = 0.9f)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 4.dp)
-                    ) {
-                        Text(
-                            text = "QQ交流群",
-                            fontSize = 16.sp,
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-
-            // 版权信息
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(bottom = 24.dp),
-                contentAlignment = Alignment.BottomCenter
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "https://github.com/kuangru52/embysic",
-                        color = Color(0xFF2196F3), 
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        textDecoration = TextDecoration.Underline,
-                        modifier = Modifier
-                            .clickable {
-                                openUrl("https://github.com/kuangru52/embysic")
-                            }
-                            .padding(4.dp)
-                    )
-                    
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "Embysic  ${BuildConfig.VERSION_NAME}",
-                            color = Color.White.copy(alpha = 0.4f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Light
-                        )
-                        
-                        if (hasUpdate) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(Color.White.copy(alpha = 0.15f))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "可更新",
-                                    color = Color.White.copy(alpha = 0.7f),
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
-                    }
-                }
+                joinQQGroup()
             }
         }
     }
 
-    private fun openUrl(url: String) {
+    private fun openUrl() {
         try {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            val intent = Intent(Intent.ACTION_VIEW, telegramUrl.toUri())
             startActivity(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Toast.makeText(this, "无法打开链接", Toast.LENGTH_SHORT).show()
         }
     }
 
-    private fun openTelegram(url: String) {
-        openUrl(url)
+    private fun openTelegram() {
+        openUrl()
     }
 
-    private fun joinQQGroup(groupId: String) {
+    private fun joinQQGroup() {
         try {
-            val url = "mqqapi://card/show_pslcard?src_type=internal&version=1&uin=$groupId&card_type=group&source=qrcode"
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            val url = "mqqapi://card/show_pslcard?src_type=internal&version=1&uin=$qqGroupId&card_type=group&source=qrcode"
+            val intent = Intent(Intent.ACTION_VIEW, url.toUri())
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(intent)
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             Toast.makeText(this, "未检测到 QQ，或无法打开链接", Toast.LENGTH_SHORT).show()
         }
     }
@@ -357,29 +150,224 @@ class DonationActivity : ComponentActivity() {
         }
     }
 
-    private fun donateToAlipaySafe(payCode: String) {
+    private fun donateToAlipaySafe() {
         try {
-            val packageManager = packageManager
             val alipayIntent = packageManager.getLaunchIntentForPackage("com.eg.android.AlipayGphone")
             
             if (alipayIntent != null) {
-                // 使用官方推荐的 Universal Link 结合二维码链接的方式，这是目前最稳妥、最少警告的方案
-                // 它模拟了“通过外部安全链接唤起支付宝扫码结果”的过程
-                val qrUrl = "https://qr.alipay.com/$payCode"
+                val qrUrl = "https://qr.alipay.com/$aliPayCode"
                 val intentUrl = "https://render.alipay.com/p/s/i/?scheme=" + 
                                Uri.encode("alipays://platformapi/startapp?saId=10000007&qrcode=" + Uri.encode(qrUrl))
 
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(intentUrl))
+                val intent = Intent(Intent.ACTION_VIEW, intentUrl.toUri())
                 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 startActivity(intent)
             } else {
                 Toast.makeText(this, "未检测到支付宝，请安装后重试", Toast.LENGTH_LONG).show()
-                val webIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ds.alipay.com/"))
+                val webIntent = Intent(Intent.ACTION_VIEW, "https://ds.alipay.com/".toUri())
                 startActivity(webIntent)
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
+        } catch (_: Exception) {
             Toast.makeText(this, "跳转失败，请手动打开支付宝", Toast.LENGTH_SHORT).show()
         }
     }
+}
+
+// --- Top Level Composables for Liquid Glass & Previews ---
+
+@Composable
+fun DonationScreen(
+    onAlipayClick: () -> Unit = {},
+    onWeChatClick: () -> Unit = {},
+    onTelegramClick: () -> Unit = {},
+    onQQClick: () -> Unit = {},
+) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("embysic_prefs", Context.MODE_PRIVATE) }
+    val blurRadius = remember { prefs.getFloat("wallpaper_blur_radius", prefs.getFloat("glass_blur_radius", 18f)) }
+    var wallpaperSource by remember { mutableStateOf<Any?>(null) }
+
+    LaunchedEffect(Unit) {
+        val src = WallpaperManager.getActiveWallpaperSource(context)
+        wallpaperSource = src
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // 1. 全屏同步系统/自定义壁纸 (完全放弃 donate.png，与其他页面 100% 同步高斯模糊度)
+        AndroidView(
+            factory = { ctx ->
+                ImageView(ctx).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    )
+                    val blurPx = blurRadius.coerceIn(1f, 100f)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        setRenderEffect(
+                            RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP),
+                        )
+                    }
+                    if (wallpaperSource is Int) {
+                        setImageResource(wallpaperSource as Int)
+                    } else if (wallpaperSource != null) {
+                        load(wallpaperSource) {
+                            crossfade(enable = false)
+                            allowHardware(enable = false)
+                            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                                transformations(BlurTransformation(ctx, blurPx.toInt().coerceIn(1, 100), 4))
+                            }
+                        }
+                    }
+                }
+            },
+            update = { iv ->
+                val blurPx = blurRadius.coerceIn(1f, 100f)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    iv.setRenderEffect(
+                        RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP),
+                    )
+                }
+                if (wallpaperSource is Int) {
+                    iv.setImageResource(wallpaperSource as Int)
+                } else if (wallpaperSource != null) {
+                    iv.load(wallpaperSource) {
+                        crossfade(enable = false)
+                        allowHardware(enable = false)
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+                            transformations(BlurTransformation(iv.context, blurPx.toInt().coerceIn(1, 100), 4))
+                        }
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxSize(),
+        )
+
+        // 2. 黑色半透明质感蒙版
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.35f)),
+        )
+
+        // 3. 前景捐赠文案与按钮
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text(
+                    text = "愿 Embysic 能在您忙碌的生活里，点亮片刻温暖的时光。\n\n我用彻夜未眠的满腔热血，希望能换您一杯咖啡的赞赏。\n\n捐赠全凭自愿，不捐赠也不会影响任何功能使用。\n\n愿每一段旋律，都能治愈平凡日常，让您重新爱上音乐。",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    lineHeight = 28.sp,
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Medium,
+                )
+
+                Spacer(modifier = Modifier.height(48.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(0.9f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = onAlipayClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF108EE9).copy(alpha = 0.9f),
+                        ),
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) {
+                        Text(
+                            text = "支付宝捐赠",
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+
+                    Button(
+                        onClick = onWeChatClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF07C160).copy(alpha = 0.9f),
+                        ),
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) {
+                        Text(
+                            text = "微信捐赠",
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(0.9f),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Button(
+                        onClick = onTelegramClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF2196F3).copy(alpha = 0.9f),
+                        ),
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) {
+                        Text(
+                            text = "Telegram群",
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+
+                    Button(
+                        onClick = onQQClick,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF12B7F5).copy(alpha = 0.9f),
+                        ),
+                        contentPadding = PaddingValues(horizontal = 4.dp),
+                    ) {
+                        Text(
+                            text = "QQ交流群",
+                            fontSize = 16.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Preview(name = "Donation Screen Preview", showBackground = true)
+@Composable
+fun DonationScreenPreview() {
+    DonationScreen()
 }

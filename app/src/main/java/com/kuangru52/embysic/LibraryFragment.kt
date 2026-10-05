@@ -1,15 +1,10 @@
 package com.kuangru52.embysic
 
-import android.content.res.Configuration
-import android.graphics.RectF
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -20,11 +15,16 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import android.view.animation.Animation
+import android.view.animation.AnimationUtils
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.graphics.drawable.toDrawable
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import coil.load
 import kotlinx.coroutines.launch
 
 @UnstableApi
@@ -33,9 +33,12 @@ class LibraryFragment : Fragment() {
     override fun onCreateAnimation(transit: Int, enter: Boolean, nextAnim: Int): Animation? {
         val activity = activity as? HomeActivity
         if (activity?.isSwipingBack == true) {
-            // 如果是手势返回，无论是进入还是退出，都返回一个时长为 0 的空动画
-            // 彻底防止系统动画重叠
             return object : Animation() {}.apply { duration = 0 }
+        }
+        if (nextAnim != 0) {
+            try {
+                return AnimationUtils.loadAnimation(context, nextAnim)
+            } catch (_: Exception) {}
         }
         return super.onCreateAnimation(transit, enter, nextAnim)
     }
@@ -54,72 +57,145 @@ class LibraryFragment : Fragment() {
     private var userId = ""
     
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
-
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        val view = inflater.inflate(R.layout.fragment_library, container, false)
-        ivFragmentBackground = view.findViewById(R.id.ivFragmentBackground)
-        recyclerView = view.findViewById(R.id.rvLibrary)
-        
-        // 沉浸式：设置 PaddingTop
-        ViewCompat.setOnApplyWindowInsetsListener(view) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(0, systemBars.top, 0, 0)
-            insets
+        get() {
+            val ctx = context ?: return ""
+            return "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(ctx)}\", DeviceId=\"${MediaItemUtils.getDeviceId(ctx)}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
         }
 
-        // 同步全局模糊背景
-        syncBackground()
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        val composeView = androidx.compose.ui.platform.ComposeView(requireContext())
+        composeView.setContent {
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = { context ->
+                    val swipeBack = SwipeBackLayout(context).apply { id = R.id.swipeBackLayout }
+                    val frameRoot = android.widget.FrameLayout(context)
+                    val bg = android.widget.ImageView(context).apply {
+                        id = R.id.ivFragmentBackground
+                        scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                        setBackgroundColor(android.graphics.Color.BLACK)
+                    }
+                    val constraint = androidx.constraintlayout.widget.ConstraintLayout(context)
+                    val searchCompose = androidx.compose.ui.platform.ComposeView(context).apply {
+                        id = R.id.search_bar_compose
+                    }
+                    val rv = RecyclerView(context).apply {
+                        id = R.id.rvLibrary
+                        setPadding(0, 0, 0, (170 * context.resources.displayMetrics.density).toInt())
+                        clipToPadding = false
+                    }
+                    val selBar = android.widget.LinearLayout(context).apply {
+                        id = R.id.selectionBar
+                        orientation = android.widget.LinearLayout.HORIZONTAL
+                        gravity = android.view.Gravity.CENTER_VERTICAL
+                        setPadding((16 * context.resources.displayMetrics.density).toInt(), 0, (16 * context.resources.displayMetrics.density).toInt(), 0)
+                        visibility = View.GONE
+                    }
+                    val btnCancel = TextView(context).apply {
+                        id = R.id.btnCancelSelection
+                        text = getString(R.string.cancel)
+                        textSize = 16f
+                    }
+                    val spaceView = View(context)
+                    val btnDel = TextView(context).apply {
+                        id = R.id.btnDeleteBatch
+                        text = getString(R.string.delete_selected)
+                        setTextColor(android.graphics.Color.RED)
+                        textSize = 16f
+                    }
+                    selBar.addView(btnCancel)
+                    selBar.addView(spaceView, android.widget.LinearLayout.LayoutParams(0, 0, 1f))
+                    selBar.addView(btnDel)
 
-        progressBar = view.findViewById(R.id.progressBar)
-        selectionBar = view.findViewById(R.id.selectionBar)
-        btnDeleteBatch = view.findViewById(R.id.btnDeleteBatch)
-        btnCancelSelection = view.findViewById(R.id.btnCancelSelection)
+                    val pb = ProgressBar(context).apply {
+                        id = R.id.progressBar
+                        visibility = View.GONE
+                    }
 
-        btnCancelSelection.setOnClickListener {
-            adapter.setSelectionMode(false)
+                    val searchParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(0, androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT).apply {
+                        topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                    }
+                    val rvParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(0, 0).apply {
+                        topToBottom = R.id.search_bar_compose
+                        bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                    }
+                    val selParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_PARENT, (64 * context.resources.displayMetrics.density).toInt()).apply {
+                        bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        bottomMargin = (180 * context.resources.displayMetrics.density).toInt()
+                    }
+                    val pbParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT, androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT).apply {
+                        topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                    }
+
+                    constraint.addView(searchCompose, searchParams)
+                    constraint.addView(rv, rvParams)
+                    constraint.addView(selBar, selParams)
+                    constraint.addView(pb, pbParams)
+
+                    frameRoot.addView(bg, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+                    frameRoot.addView(constraint, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+                    swipeBack.addView(frameRoot, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+
+                    ivFragmentBackground = bg
+                    recyclerView = rv
+                    progressBar = pb
+                    selectionBar = selBar
+                    btnDeleteBatch = btnDel
+                    btnCancelSelection = btnCancel
+
+                    btnCancelSelection.setOnClickListener { adapter.setSelectionMode(enabled = false) }
+                    btnDeleteBatch.setOnClickListener {
+                        val selectedItems = adapter.getSelectedItems()
+                        if (selectedItems.isNotEmpty()) showBatchDeleteConfirmation(selectedItems)
+                    }
+
+                    // 核心修复：将状态栏 padding 作用在内部 constraint 容器上，而非外层 SwipeBackLayout
+                    // 彻底避免 ViewDragHelper 在横向拖拽 contentView 时改动 contentView.top 导致顶部卡片向上坍塌缩进
+                    ViewCompat.setOnApplyWindowInsetsListener(constraint) { v, insets ->
+                        val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                        v.setPadding(0, systemBars.top, 0, 0)
+                        insets
+                    }
+
+                    syncBackground()
+                    setupRecyclerView()
+                    loadPrefs()
+                    initApiService()
+
+                    val artistId = arguments?.getString("artist_id")
+                    val artistName = arguments?.getString("artist_name")
+                    val targetItemId = arguments?.getString("target_item_id")
+
+                    (activity as? HomeActivity)?.findViewById<View>(R.id.bottom_container)?.visibility = View.VISIBLE
+
+                    if (targetItemId != null) {
+                        locateAndLoadParent(targetItemId)
+                    } else if (artistId != null) {
+                        val fragments = parentFragmentManager.fragments
+                        if (fragments.size >= 2) {
+                            val prevFragment = fragments[fragments.size - 2]
+                            swipeBack.setPreviousView(prevFragment.view)
+                        }
+                        swipeBack.setOnSwipeBackListener {
+                            requireActivity().onBackPressedDispatcher.onBackPressed()
+                        }
+                        loadItems(artistId, artistName ?: "层级")
+                    } else {
+                        loadItems(null, "音乐库")
+                    }
+
+                    swipeBack
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
         }
-
-        btnDeleteBatch.setOnClickListener {
-            val selectedItems = adapter.getSelectedItems()
-            if (selectedItems.isNotEmpty()) {
-                showBatchDeleteConfirmation(selectedItems)
-            }
-        }
-        
-        setupRecyclerView()
-        loadPrefs()
-        initApiService()
-
-        val swipeBackLayout = view.findViewById<SwipeBackLayout>(R.id.swipeBackLayout)
-        val artistId = arguments?.getString("artist_id")
-        val artistName = arguments?.getString("artist_name")
-        val targetItemId = arguments?.getString("target_item_id")
-
-        (activity as? HomeActivity)?.findViewById<View>(R.id.bottom_container)?.visibility = View.VISIBLE
-
-        if (false) {
-            swipeBackLayout.isEnabled = false
-        }
-
-        if (targetItemId != null) {
-            // 如果是从播放页跳转来的，先获取该歌曲的父级 ID
-            locateAndLoadParent(targetItemId)
-        } else if (artistId != null) {
-            val fragments = parentFragmentManager.fragments
-            if (fragments.size >= 2) {
-                val prevFragment = fragments[fragments.size - 2]
-                swipeBackLayout.setPreviousView(prevFragment.view)
-            }
-            swipeBackLayout.setOnSwipeBackListener {
-                requireActivity().onBackPressedDispatcher.onBackPressed()
-            }
-            loadItems(artistId, artistName ?: "层级")
-        } else {
-            loadItems(null, "音乐库")
-        }
-
-        return view
+        return composeView
     }
 
     private fun locateAndLoadParent(itemId: String) {
@@ -136,7 +212,7 @@ class LibraryFragment : Fragment() {
                 } else {
                     loadItems(null, "音乐库")
                 }
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 loadItems(null, "音乐库")
             } finally {
                 progressBar.visibility = View.GONE
@@ -154,26 +230,53 @@ class LibraryFragment : Fragment() {
         }
     }
 
-    private fun syncBackground() {
-        if (!isAdded) return
-        
+    internal fun syncBackground() {
+        if (!isAdded || !::ivFragmentBackground.isInitialized) return
+
+        val homeActivity = activity as? HomeActivity
+        if (WallpaperManager.getMode(requireContext()) == "none") {
+            val isDark = homeActivity?.isAppDark() ?: false
+            val noneColorInt = if (isDark) android.graphics.Color.rgb(18, 18, 24) else android.graphics.Color.rgb(248, 250, 252)
+            ivFragmentBackground.setImageDrawable(noneColorInt.toDrawable())
+            ivFragmentBackground.alpha = 1.0f
+            ivFragmentBackground.visibility = View.VISIBLE
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                ivFragmentBackground.setRenderEffect(null)
+            }
+            return
+        }
+
         val isTabletLand = (resources.configuration.smallestScreenWidthDp >= 600) &&
-                          resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                          (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
         
         if (isTabletLand) {
             ivFragmentBackground.visibility = View.GONE
             return
         }
 
-        val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
-        if (activityBg != null && activityBg.drawable != null) {
-            ivFragmentBackground.setImageDrawable(activityBg.drawable)
-            ivFragmentBackground.alpha = activityBg.alpha
+        val activityBg = homeActivity?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
+        if ((activityBg != null) && (activityBg.drawable != null)) {
+            ivFragmentBackground.setImageDrawable(activityBg.drawable.constantState?.newDrawable() ?: activityBg.drawable)
+            ivFragmentBackground.alpha = 1.0f
             ivFragmentBackground.visibility = View.VISIBLE
+            homeActivity.applyWallpaperBlur(ivFragmentBackground)
+        } else {
+            lifecycleScope.launch {
+                val ctx = context ?: return@launch
+                val source = WallpaperManager.getActiveWallpaperSource(ctx)
+                ivFragmentBackground.load(source) {
+                    crossfade(enable = false)
+                    allowHardware(enable = false)
+                }
+                ivFragmentBackground.alpha = 1.0f
+                ivFragmentBackground.visibility = View.VISIBLE
+                homeActivity?.applyWallpaperBlur(ivFragmentBackground)
+            }
         }
     }
 
     private fun updatePlaybackState(mediaItem: MediaItem?) {
+        if (!::adapter.isInitialized) return
         val extras = mediaItem?.mediaMetadata?.extras
         val albumId = extras?.getString("album_id")
         val path = extras?.getString("path")
@@ -210,41 +313,27 @@ class LibraryFragment : Fragment() {
                     }
                     (activity as? HomeActivity)?.replaceFragment(fragment, "Library_${item.Id}")
                 } else {
-                    playMusic(item, adapter.items)
+                    playMusic(item)
                 }
             },
             onItemDelete = { item ->
                 showDeleteConfirmation(item)
             },
-            onSelectionModeChanged = { enabled ->
-                selectionBar.visibility = if (enabled) View.VISIBLE else View.GONE
-            }
-        )
+        ) { enabled ->
+            selectionBar.visibility = if (enabled) View.VISIBLE else View.GONE
+        }
         
         recyclerView.layoutManager = LinearLayoutManager(context)
         recyclerView.adapter = adapter
     }
 
     private fun showBatchDeleteConfirmation(items: List<EmbyItem>) {
-        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_custom_confirm, null)
-        val dialog = AlertDialog.Builder(requireContext(), R.style.Theme_Embysic_Dialog)
-            .setView(dialogView)
-            .create()
-
-        dialogView.findViewById<TextView>(R.id.dialogTitle).text = getString(R.string.confirm_delete)
-        dialogView.findViewById<TextView>(R.id.dialogMessage).text = getString(R.string.batch_delete_msg, items.size)
-        
-        dialogView.findViewById<TextView>(R.id.btnCancel).setOnClickListener {
-            dialog.dismiss()
-        }
-        
-        dialogView.findViewById<TextView>(R.id.btnConfirm).setOnClickListener {
-            dialog.dismiss()
-            performBatchDelete(items)
-        }
-
-        dialog.show()
-        setupDialogWindow(dialog, dialogView)
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.confirm_delete)
+            .setMessage(getString(R.string.batch_delete_msg, items.size))
+            .setPositiveButton(R.string.confirm_delete) { _, _ -> performBatchDelete(items) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun performBatchDelete(items: List<EmbyItem>) {
@@ -257,15 +346,14 @@ class LibraryFragment : Fragment() {
                 try {
                     service.deleteItem(item.Id, authHeader)
                     successCount++
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     failCount++
                 }
             }
             progressBar.visibility = View.GONE
             val msg = getString(R.string.deleted_success) + " $successCount items" + (if (failCount > 0) ", $failCount failed" else "")
             Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-            adapter.setSelectionMode(false)
-            // 刷新列表
+            adapter.setSelectionMode(enabled = false)
             val artistId = arguments?.getString("artist_id")
             val artistName = arguments?.getString("artist_name")
             loadItems(artistId, artistName ?: "层级")
@@ -273,69 +361,12 @@ class LibraryFragment : Fragment() {
     }
 
     private fun showDeleteConfirmation(item: EmbyItem) {
-        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_custom_confirm, null)
-        val dialog = AlertDialog.Builder(requireContext(), R.style.Theme_Embysic_Dialog)
-            .setView(dialogView)
-            .create()
-
-        dialogView.findViewById<TextView>(R.id.dialogTitle).text = getString(R.string.confirm_delete)
-        dialogView.findViewById<TextView>(R.id.dialogMessage).text = getString(R.string.delete_msg, item.Name)
-        
-        dialogView.findViewById<TextView>(R.id.btnCancel).setOnClickListener {
-            dialog.dismiss()
-        }
-        
-        dialogView.findViewById<TextView>(R.id.btnConfirm).setOnClickListener {
-            dialog.dismiss()
-            performDelete(item)
-        }
-
-        dialog.show()
-        setupDialogWindow(dialog, dialogView)
-    }
-
-    private fun setupDialogWindow(dialog: AlertDialog, dialogView: View) {
-        val dm = resources.displayMetrics
-        val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
-        val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
-        val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
-        val px10dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, dm)
-
-        val width = (dm.widthPixels * 0.82).toInt()
-        dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val container = (activity as? HomeActivity)?.findViewById<View>(R.id.fragment_container)
-            
-            dialogView.post {
-                val dialogLoc = IntArray(2)
-                dialogView.getLocationOnScreen(dialogLoc)
-                val containerLoc = IntArray(2)
-                container?.getLocationOnScreen(containerLoc)
-                
-                val relativeLeft = (dialogLoc[0] - containerLoc[0]).toFloat()
-                val relativeTop = (dialogLoc[1] - containerLoc[1]).toFloat()
-                
-                val dialogRect = RectF(
-                    relativeLeft,
-                    relativeTop,
-                    relativeLeft + dialogView.width,
-                    relativeTop + dialogView.height
-                )
-                
-                (activity as? HomeActivity)?.applyDialogEffect(dialogRect, px38dp, pxNeg60dp, px20dpRefHeight, px10dpBlurRadius)
-            }
-            
-            dialog.setOnDismissListener {
-                (activity as? HomeActivity)?.clearDialogEffect()
-            }
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            dialog.window?.attributes?.let {
-                it.blurBehindRadius = 64
-                dialog.window?.attributes = it
-            }
-        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.confirm_delete)
+            .setMessage(getString(R.string.delete_msg, item.Name))
+            .setPositiveButton(R.string.confirm_delete) { _, _ -> performDelete(item) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     private fun performDelete(item: EmbyItem) {
@@ -359,15 +390,29 @@ class LibraryFragment : Fragment() {
         val service = apiService ?: return
         val currentUserId = userId 
         val currentAuth = authHeader
+        val cacheKey = parentId ?: "ROOT"
+
+        // 1. 内存缓存 0ms 瞬间渲染，零转圈
+        MemoryCache.libraryFoldersCache[cacheKey]?.let { cached ->
+            if (cached.isNotEmpty()) {
+                val ctx = context ?: return@let
+                if (::adapter.isInitialized) {
+                    adapter.submitList(cached, ctx)
+                }
+                if (::progressBar.isInitialized) progressBar.visibility = View.GONE
+            }
+        }
+
+        if (MemoryCache.libraryFoldersCache[cacheKey].isNullOrEmpty() && ::progressBar.isInitialized) {
+            progressBar.visibility = View.VISIBLE
+        }
 
         lifecycleScope.launch {
-            progressBar.visibility = View.VISIBLE
             try {
                 val response = if (parentId == null) {
                     val views = service.getUserViews(currentUserId, currentAuth)
                     val musicLibrary = views.Items.find { it.CollectionType.equals("music", ignoreCase = true) }
                     if (musicLibrary != null) {
-                        // 修复：直接加载音乐库内容，不再递归调用 loadItems 避免状态混乱
                         service.getItems(
                             userId = currentUserId,
                             parentId = musicLibrary.Id,
@@ -376,7 +421,7 @@ class LibraryFragment : Fragment() {
                             includeItemTypes = "Audio,Folder,MusicAlbum,MusicArtist,CollectionFolder",
                             fields = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,Filename,SortName,ChildCount,RecursiveItemCount,ParentId,HasLyrics",
                             sortBy = "IsFolder,SortName",
-                            sortOrder = "Ascending"
+                            sortOrder = "Ascending",
                         )
                     } else {
                         views
@@ -390,42 +435,33 @@ class LibraryFragment : Fragment() {
                         includeItemTypes = "Audio,Folder,MusicAlbum,MusicArtist,CollectionFolder",
                         fields = "Path,ItemCounts,PrimaryImageAspectRatio,Artists,AlbumId,ImageTags,MediaSources,RunTimeTicks,UserData,IndexNumber,ParentIndexNumber,FileName,Filename,SortName,ChildCount,RecursiveItemCount,ParentId,HasLyrics",
                         sortBy = "IsFolder,SortName",
-                        sortOrder = "Ascending"
+                        sortOrder = "Ascending",
                     )
                 }
 
-                // 1. 过滤：排除名为 "Artwork" 的文件夹，以及没有任何音频内容的空文件夹（例如仅含图片的文件夹）
                 val filteredItems = response.Items.filter { item ->
                     if (item.Name == "Artwork") return@filter false
-                    // 如果是文件夹，检查其递归子项计数。如果为 0，说明该文件夹内没有音频或可播放内容。
-                    if (item.IsFolder && item.Type != "MusicArtist" && (item.RecursiveItemCount ?: 0) <= 0 && (item.ChildCount ?: 0) <= 0) {
+                    if (item.IsFolder && (item.Type != "MusicArtist") && ((item.RecursiveItemCount ?: 0) <= 0) && ((item.ChildCount ?: 0) <= 0)) {
                         return@filter false
                     }
                     true
                 }
 
-                // 排序逻辑：遵循 Emby 服务器原始排序（处理中文）+ 音乐音轨强制排序
-                // 1. 文件夹：直接信任 Emby 服务端的 SortName 排序结果，完美支持中文拼音
-                val folders = filteredItems.filter { it.IsFolder || it.Type != "Audio" }
-                
-                // 2. 音乐文件：在当前目录下，依然强制按照【碟号 > 音轨号】排序，确保专辑曲目顺序正确
-                val music = filteredItems.filter { !it.IsFolder && it.Type == "Audio" }
+                val folders = filteredItems.filter { it.IsFolder || (it.Type != "Audio") }
+                val music = filteredItems.asSequence().filter { !it.IsFolder && (it.Type == "Audio") }
                     .sortedWith(
-                        compareBy<EmbyItem> { it.ParentIndexNumber ?: 0 } // 先排碟号
-                            .thenBy { it.IndexNumber ?: 0 }               // 再排音轨号
-                            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.SortName ?: it.Name }
-                    )
+                        compareBy<EmbyItem> { it.ParentIndexNumber ?: 0 }
+                            .thenBy { it.IndexNumber ?: 0 }
+                            .thenBy(String.CASE_INSENSITIVE_ORDER) { it.SortName ?: it.Name },
+                    ).toList()
 
                 val sortedItems = folders + music
                 
-                // 增加“面包屑/母文件夹”功能
-                // 逻辑：只有当 parentId 存在，且 parentId 对应的不是“音乐库”根目录时显示
                 var showBackFolder = false
                 if (parentId != null) {
                     val views = service.getUserViews(userId, authHeader)
                     val musicLibrary = views.Items.find { it.CollectionType == "music" }
-                    // 如果当前 parentId 不是音乐库 ID，说明在子文件夹里
-                    if (musicLibrary != null && parentId != musicLibrary.Id) {
+                    if ((musicLibrary != null) && (parentId != musicLibrary.Id)) {
                         showBackFolder = true
                     }
                 }
@@ -435,23 +471,26 @@ class LibraryFragment : Fragment() {
                         Id = "BACK_FOLDER",
                         Name = title,
                         Type = "Folder",
-                        IsFolder = true
+                        IsFolder = true,
                     )
                     listOf(parentItem) + sortedItems
                 } else {
                     sortedItems
                 }
+
+                MemoryCache.libraryFoldersCache[cacheKey] = finalItems
                 
-                adapter.submitList(finalItems, context)
+                val ctx = context ?: return@launch
+                if (!::adapter.isInitialized) return@launch
+                adapter.submitList(finalItems, ctx)
             } catch (_: Exception) {
-                // 静默处理所有加载失败，避免切换过快产生的弹窗
             } finally {
-                progressBar.visibility = View.GONE
+                if (::progressBar.isInitialized) progressBar.visibility = View.GONE
             }
         }
     }
 
-    private fun playMusic(item: EmbyItem, allItems: List<EmbyItem>) {
+    private fun playMusic(item: EmbyItem) {
         val controller = (activity as? HomeActivity)?.mediaController ?: return
         
         // 备份当前模式
@@ -459,10 +498,7 @@ class LibraryFragment : Fragment() {
         val currentShuffleMode = controller.shuffleModeEnabled
 
         val currentMediaItem = controller.currentMediaItem
-        val currentSessionId = currentMediaItem?.mediaMetadata?.extras?.getString("play_session_id")
         val currentId = currentMediaItem?.mediaId
-        
-        val playableItems = allItems.filter { !it.IsFolder }
         val isSameSong = item.Id == currentId
         
         if (isSameSong) {
@@ -487,7 +523,8 @@ class LibraryFragment : Fragment() {
     }
 
     private fun loadPrefs() {
-        requireContext().getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE).apply {
+        val ctx = context ?: return
+        ctx.getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE).apply {
             serverUrl = getString("server_url", "") ?: ""
             accessToken = getString("access_token", "") ?: ""
             userId = getString("user_id", "") ?: ""
@@ -495,6 +532,18 @@ class LibraryFragment : Fragment() {
     }
 
     private fun initApiService() {
-        apiService = RetrofitClient.getEmbyApiService(requireContext())
+        val ctx = context ?: return
+        apiService = RetrofitClient.getEmbyApiService(ctx)
+    }
+
+    companion object {
+        fun newInstance(parentId: String, title: String): LibraryFragment {
+            return LibraryFragment().apply {
+                arguments = Bundle().apply {
+                    putString("parent_id", parentId)
+                    putString("title", title)
+                }
+            }
+        }
     }
 }

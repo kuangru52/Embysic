@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.util.AttributeSet
 import android.view.View
 import android.view.animation.OvershootInterpolator
+import androidx.core.graphics.toColorInt
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.pow
@@ -15,7 +16,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 class VolumeDotView @JvmOverloads constructor(
-    context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
+    context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0,
 ) : View(context, attrs, defStyleAttr) {
 
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -32,14 +33,15 @@ class VolumeDotView @JvmOverloads constructor(
 
     private val dotRadiusDp = 1.6f
     private val spacingDp = 11f
-    private val shadowColor = Color.parseColor("#40000000")
+    private val shadowColor = "#40000000".toColorInt()
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         screenWidth = w.toFloat()
     }
 
-    fun setTouchPosition(x: Float, y: Float, pressed: Boolean) {
+    fun setTouchPosition(x: Float, y: Float = 0f, pressed: Boolean) {
+        if (y == -999f) return
         if (pressed && !isPressed) {
             startBloomAnimation()
         }
@@ -69,7 +71,7 @@ class VolumeDotView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (screenWidth <= 0 || (!isPressed && bloomProgress <= 0f)) return
+        if ((screenWidth <= 0f) || (!isPressed && (bloomProgress <= 0f))) return
 
         val density = resources.displayMetrics.density
         val r = dotRadiusDp * density

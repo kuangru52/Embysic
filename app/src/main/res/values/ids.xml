@@ -1,0 +1,37 @@
+<resources>
+    <item type="id" name="ivWallpaperMask" />
+    <item type="id" name="ivFragmentBackground" />
+    <item type="id" name="heartLayout" />
+    <item type="id" name="swipeBackLayout" />
+    <item type="id" name="rvArtists" />
+    <item type="id" name="pbArtists" />
+    <item type="id" name="search_bar_compose" />
+    <item type="id" name="rvLibrary" />
+    <item type="id" name="selectionBar" />
+    <item type="id" name="btnCancelSelection" />
+    <item type="id" name="btnDeleteBatch" />
+    <item type="id" name="progressBar" />
+    <item type="id" name="fragment_recent_root" />
+    <item type="id" name="rvRecent" />
+    <item type="id" name="tvTitle" />
+    <item type="id" name="tvArtist" />
+    <item type="id" name="ivAlbumArt" />
+    <item type="id" name="ivNeedle" />
+    <item type="id" name="rlDisc" />
+    <item type="id" name="btnPlayPause" />
+    <item type="id" name="btnPrev" />
+    <item type="id" name="btnNext" />
+    <item type="id" name="btnPlayMode" />
+    <item type="id" name="btnMore" />
+    <item type="id" name="seekBar" />
+    <item type="id" name="tvCurrentTime" />
+    <item type="id" name="tvTotalTime" />
+    <item type="id" name="rvLyrics" />
+    <item type="id" name="tvPlayModeHint" />
+    <item type="id" name="tvAudioQuality" />
+    <item type="id" name="pbDownload" />
+    <item type="id" name="volumeDotView" />
+    <item type="id" name="bottomTouchArea" />
+    <item type="id" name="sbVolumeHint" />
+    <item type="id" name="llVolumeHint" />
+</resources>

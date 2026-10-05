@@ -1,3 +1,5 @@
+@file:Suppress("unused")
+
 package com.kuangru52.embysic
 
 import android.content.Context
@@ -31,7 +33,7 @@ object SongDownloader {
         if (context == null) return false
         val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return false
         val file = File(dir, "$itemId.aac")
-        return file.exists() && file.length() > 0
+        return (file.exists()) && (file.length() > 0)
     }
 
     /**
@@ -42,7 +44,7 @@ object SongDownloader {
         if (!dir.exists()) dir.mkdirs()
         
         val outputFile = File(dir, "$itemId.aac")
-        if (outputFile.exists() && outputFile.length() > 0) {
+        if ((outputFile.exists()) && (outputFile.length() > 0)) {
             Log.d("SongDownloader", "File already exists: $itemId")
             progressMap[itemId] = 100
             onComplete(outputFile)
@@ -62,8 +64,8 @@ object SongDownloader {
                     .append("?api_key=$token")
                     .append("&UserId=$userId")
                     .append("&DeviceId=$deviceId")
-                    .append("&MaxStreamingBitrate=320000")
-                    .append("&AudioBitrate=320000")
+                    .append("&MaxStreamingBitrate=256000")
+                    .append("&AudioBitrate=256000")
                     .append("&Container=aac")
                     .append("&AudioCodec=aac")
                     .append("&TranscodingContainer=aac")
@@ -85,7 +87,12 @@ object SongDownloader {
                         onComplete(null)
                         return@execute
                     }
-                    val body = response.body ?: return@execute
+                    val body = response.body ?: run {
+                        progressMap.remove(itemId)
+                        listeners.forEach { it(itemId, 0) }
+                        onComplete(null)
+                        return@execute
+                    }
                     val totalBytes = body.contentLength()
                     
                     val tempFile = File(dir, "$itemId.tmp")
@@ -137,6 +144,6 @@ object SongDownloader {
     fun getLocalFileUri(context: Context, itemId: String): android.net.Uri? {
         val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return null
         val file = File(dir, "$itemId.aac")
-        return if (file.exists() && file.length() > 0) android.net.Uri.fromFile(file) else null
+        return if ((file.exists()) && (file.length() > 0)) android.net.Uri.fromFile(file) else null
     }
 }

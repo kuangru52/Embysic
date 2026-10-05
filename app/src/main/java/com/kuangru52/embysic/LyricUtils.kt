@@ -1,7 +1,5 @@
 package com.kuangru52.embysic
 
-import kotlin.math.abs
-
 import android.content.Context
 import android.util.Log
 import androidx.core.content.edit
@@ -11,7 +9,7 @@ import coil.request.SuccessResult
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
+import kotlin.math.abs
 
 /**
  * 核心匹配工具类
@@ -21,9 +19,6 @@ object LyricUtils {
     // 内存缓存歌词，供全局（手机/平板）共享
     val lyricsCache: MutableMap<String, List<LrcLine>> = mutableMapOf()
 
-    /**
-     * 统一同步逻辑：一次性抓取封面和歌词
-     */
     suspend fun fetchNeteaseMetadata(
         context: Context,
         itemId: String,
@@ -33,13 +28,12 @@ object LyricUtils {
         durationMs: Long,
         skipCover: Boolean = false,
         onCoverReady: (Any) -> Unit = {},
-        onLyricsReady: (List<LrcLine>) -> Unit = {}
+        onLyricsReady: (List<LrcLine>) -> Unit = {},
     ) {
         val cleanedTitle = title?.replace(Regex("\\s*[(\\[].*?[)\\]]"), "")?.trim() ?: ""
         val isArtistUnknown = artist.isNullOrBlank() || artist.contains("未知") || artist.contains("Unknown")
         val isAlbumUnknown = album.isNullOrBlank() || album.contains("未知") || album.contains("Unknown")
         
-        // 关键修复：搜索词必须包含歌曲名，否则在搜索专辑时，同名主打歌会排在最前面，导致匹配错误
         val query = when {
             !isArtistUnknown && !isAlbumUnknown -> "$cleanedTitle $artist $album"
             !isArtistUnknown -> "$cleanedTitle $artist"
@@ -61,7 +55,6 @@ object LyricUtils {
             val picUrl = detailResponse.songs?.firstOrNull()?.al?.picUrl?.replace("http://", "https://")
             
             if (!picUrl.isNullOrEmpty() && !skipCover) {
-                // 下载并缓存封面到本地文件，确保手机/平板通用
                 downloadAndCacheCover(context, itemId, picUrl, onCoverReady)
             }
 
@@ -77,10 +70,8 @@ object LyricUtils {
                     mainLyrics
                 }
 
-                // 移除手动添加的 metadata，改用单一来源标注，减少干扰
                 val finalLines = listOf(LrcLine(-1, "来源: 网易云音乐")) + lyrics
 
-                // 写入内存和磁盘缓存
                 lyricsCache[itemId] = finalLines
                 context.getSharedPreferences("lyrics_disk_cache", Context.MODE_PRIVATE).edit {
                     putString(itemId, Gson().toJson(finalLines))
@@ -92,7 +83,6 @@ object LyricUtils {
             }
         } catch (e: Exception) {
             Log.e("LyricUtils", "Failed to fetch Netease metadata: ${e.message}")
-            // 如果是带歌手搜不到，尝试降级只搜标题
             if (!isArtistUnknown && cleanedTitle.isNotEmpty()) {
                 fetchNeteaseMetadata(context, itemId, cleanedTitle, null, null, durationMs, skipCover, onCoverReady, onLyricsReady)
             }
@@ -102,7 +92,7 @@ object LyricUtils {
     private suspend fun downloadAndCacheCover(context: Context, itemId: String, url: String, onCoverReady: (Any) -> Unit) {
         val request = ImageRequest.Builder(context)
             .data(url)
-            .allowHardware(false)
+            .allowHardware(enable = false)
             .build()
         
         val result = context.imageLoader.execute(request)
@@ -116,16 +106,13 @@ object LyricUtils {
             }
         }
     }
+
     fun cleanString(str: String): String {
         return str.lowercase()
-            .replace(Regex("[^a-z0-9\\u4e00-\\u9fa5]"), "") // 仅保留数字、字母、中文
+            .replace(Regex("[^a-z0-9\\u4e00-\\u9fa5]"), "")
             .trim()
     }
 
-    /**
-     * 提取名称的主干部分
-     * 例如 "Road to Revolution: Live at Milton Keynes" -> "roadtorevolution"
-     */
     fun getMainName(str: String?): String {
         if (str.isNullOrBlank()) return ""
         val mainPart = str.split(Regex("[:：(\\[（]")).firstOrNull() ?: str
@@ -137,7 +124,7 @@ object LyricUtils {
         targetTitle: String,
         targetArtist: String?,
         targetAlbum: String?,
-        targetDurationMs: Long
+        targetDurationMs: Long,
     ): NeteaseSearchSong? {
         if (songs.isEmpty()) return null
 
@@ -158,33 +145,28 @@ object LyricUtils {
             val cleanSongAlbum = cleanString(song.album?.name ?: "")
             val mainSongAlbum = getMainName(song.album?.name)
 
-            // 1. 歌手匹配 (权重最高)
             val songArtists = song.artists?.map { cleanString(it.name) } ?: emptyList()
-            val artistMatched = songArtists.any { it == cleanTargetArtist || cleanTargetArtist.contains(it) || it.contains(cleanTargetArtist) }
-            if (!artistMatched) score += 1000 // 歌手不对，极大惩罚
+            val artistMatched = songArtists.any { (it == cleanTargetArtist) || cleanTargetArtist.contains(it) || it.contains(cleanTargetArtist) }
+            if (!artistMatched) score += 1000
 
-            // 2. 歌曲标题匹配 (次高权重)
-            when {
-                cleanSongName == cleanTargetTitle -> score += 0
-                cleanSongName.contains(cleanTargetTitle) || cleanTargetTitle.contains(cleanSongName) -> score += 20
-                else -> score += 500 // 歌曲名不匹配，较大惩罚
+            score += when {
+                cleanSongName == cleanTargetTitle -> 0
+                cleanSongName.contains(cleanTargetTitle) || cleanTargetTitle.contains(cleanSongName) -> 20
+                else -> 500
             }
 
-            // 3. 专辑匹配 (这是区分同名歌曲的关键)
-            when {
-                cleanSongAlbum == cleanTargetAlbum -> score += 0
-                mainSongAlbum == mainTargetAlbum && mainTargetAlbum.isNotEmpty() -> score += 10 
-                cleanSongAlbum.contains(cleanTargetAlbum) || cleanTargetAlbum.contains(cleanSongAlbum) -> score += 30
-                else -> score += 200 // 专辑不匹配，惩罚
+            score += when {
+                cleanSongAlbum == cleanTargetAlbum -> 0
+                (mainSongAlbum == mainTargetAlbum) && mainTargetAlbum.isNotEmpty() -> 10
+                cleanSongAlbum.contains(cleanTargetAlbum) || cleanTargetAlbum.contains(cleanSongAlbum) -> 30
+                else -> 200
             }
 
-            // 4. 时长匹配 (封面匹配时，时长仅作为极弱参考)
-            if (targetDurationMs > 0 && (song.duration ?: 0) > 0) {
+            if ((targetDurationMs > 0) && ((song.duration ?: 0) > 0)) {
                 val diff = abs((song.duration ?: 0) - targetDurationMs)
-                score += (diff / 2000).toInt() 
+                score += (diff / 2000).toInt()
             }
 
-            // 5. 版本检查 (Live/Remix)
             val isSongLive = lowerSongName.contains("live") || lowerSongAlbum.contains("live")
             if (isTargetLive != isSongLive) score += 50
 
@@ -193,14 +175,14 @@ object LyricUtils {
     }
 
     fun mergeLyrics(main: List<LrcLine>, trans: List<LrcLine>): List<LrcLine> {
-        val transMap = trans.filter { it.timeMs >= 0 }.associateBy { it.timeMs }
-        return main.filter { it.timeMs >= 0 }.map { line ->
+        val transMap = trans.asSequence().filter { it.timeMs >= 0 }.associateBy { it.timeMs }
+        return main.asSequence().filter { it.timeMs >= 0 }.map { line ->
             val tLine = transMap[line.timeMs]
-            if (tLine != null && tLine.text.isNotBlank() && tLine.text != line.text) {
+            if ((tLine != null) && tLine.text.isNotBlank() && (tLine.text != line.text)) {
                 LrcLine(line.timeMs, "${line.text}\n${tLine.text}")
             } else {
                 line
             }
-        }
+        }.toList()
     }
 }

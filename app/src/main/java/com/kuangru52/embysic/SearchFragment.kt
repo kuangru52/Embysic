@@ -1,60 +1,66 @@
 package com.kuangru52.embysic
 
-import android.content.res.Configuration
-import android.graphics.RectF
 import android.os.Bundle
 import android.util.Log
-import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
+import android.view.animation.Animation
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.core.graphics.drawable.toDrawable
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.view.animation.Animation
-
-import androidx.fragment.app.Fragment
-import androidx.lifecycle.lifecycleScope
-import androidx.media3.common.MediaItem
-import androidx.media3.common.Player
-import androidx.media3.common.util.UnstableApi
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.util.UnstableApi
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import coil.load
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
 import kotlinx.coroutines.launch
 
 @UnstableApi
@@ -64,10 +70,15 @@ class SearchFragment : Fragment() {
         if ((activity as? HomeActivity)?.isSwipingBack == true) {
             return object : Animation() {}.apply { duration = 0 }
         }
+        if (nextAnim != 0) {
+            try {
+                return android.view.animation.AnimationUtils.loadAnimation(context, nextAnim)
+            } catch (_: Exception) {}
+        }
         return super.onCreateAnimation(transit, enter, nextAnim)
     }
 
-    private lateinit var ivFragmentBackground: android.widget.ImageView
+    private lateinit var ivFragmentBackground: ImageView
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: LibraryAdapter
@@ -78,390 +89,444 @@ class SearchFragment : Fragment() {
     private var userId = ""
 
     private val authHeader: String
-        get() = "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(requireContext())}\", DeviceId=\"${MediaItemUtils.getDeviceId(requireContext())}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
-
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        val root = FrameLayout(requireContext()).apply {
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        get() {
+            val ctx = context ?: return ""
+            return "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(ctx)}\", DeviceId=\"${MediaItemUtils.getDeviceId(ctx)}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
         }
 
-        // 0. 伪透明背景图：同步 Activity 的模糊背景
-        ivFragmentBackground = android.widget.ImageView(requireContext()).apply {
-            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-        }
-        root.addView(ivFragmentBackground)
-
-        // 沉浸式：设置 PaddingTop
-        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(0, systemBars.top, 0, 0)
-            insets
-        }
-
-        // 立即执行同步
-        syncBackground()
-
-        // 1. Compose 搜索框容器
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val composeView = ComposeView(requireContext()).apply {
-            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, 80.dpToPx())
             setContent {
-                XiaomiSearchBar { query -> performSearch(query) }
+                val context = LocalContext.current
+                val homeActivity = remember(context) { context.findHomeActivity() }
+                val currentThemeMode = homeActivity?.themeMode ?: "system"
+                val appLanguage = homeActivity?.appLanguage ?: "system"
+
+                val isDark = when (currentThemeMode) {
+                    "light" -> false
+                    "dark" -> true
+                    else -> isSystemInDarkTheme()
+                }
+
+                val localizedContext = remember(appLanguage) {
+                    LanguageHelper.getLocalizedContext(context, appLanguage)
+                }
+
+                CompositionLocalProvider(
+                    LocalContext provides localizedContext,
+                    LocalConfiguration provides localizedContext.resources.configuration,
+                ) {
+                    val searchBackdrop = rememberLayerBackdrop()
+
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // 1. 全屏壁纸底层：单独挂载 layerBackdrop(searchBackdrop)，纯抓取背景图！
+                        AndroidView(
+                            factory = { context ->
+                                ImageView(context).apply {
+                                    id = R.id.ivFragmentBackground
+                                    scaleType = ImageView.ScaleType.CENTER_CROP
+                                    layoutParams = FrameLayout.LayoutParams(
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                    )
+                                    ivFragmentBackground = this
+                                    syncBackground()
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .layerBackdrop(searchBackdrop),
+                        )
+
+                        // 2. RecyclerView 列表与 ProgressBar 视图层
+                        AndroidView(
+                            factory = { context ->
+                                val root = FrameLayout(context).apply {
+                                    layoutParams = ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                    )
+                                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                }
+
+                                val contentContainer = FrameLayout(context).apply {
+                                    layoutParams = FrameLayout.LayoutParams(
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                    )
+                                }
+
+                                ViewCompat.setOnApplyWindowInsetsListener(contentContainer) { v, insets ->
+                                    val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                                    v.setPadding(0, systemBars.top, 0, 0)
+                                    insets
+                                }
+
+                                recyclerView = RecyclerView(context).apply {
+                                    layoutParams = FrameLayout.LayoutParams(
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                        FrameLayout.LayoutParams.MATCH_PARENT,
+                                    ).apply {
+                                        topMargin = (80 * context.resources.displayMetrics.density).toInt()
+                                    }
+                                    layoutManager = LinearLayoutManager(context)
+                                    setPadding(0, 0, 0, (180 * context.resources.displayMetrics.density).toInt())
+                                    clipToPadding = false
+                                }
+
+                                progressBar = ProgressBar(context).apply {
+                                    val size = (48 * context.resources.displayMetrics.density).toInt()
+                                    layoutParams = FrameLayout.LayoutParams(size, size).apply {
+                                        gravity = android.view.Gravity.CENTER
+                                    }
+                                    visibility = View.GONE
+                                }
+
+                                contentContainer.addView(recyclerView)
+                                contentContainer.addView(progressBar)
+                                root.addView(contentContainer)
+
+                                setupRecyclerView()
+                                loadPrefs()
+                                initApiService()
+
+                                root
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+
+                        // 3. 顶层纯 Compose 搜索框：挂载状态栏 padding，直接订阅 HomeActivity 的 9 项 State，100% 实时跟手重绘！
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .statusBarsPadding(),
+                        ) {
+                            XiaomiSearchBar(
+                                backdrop = searchBackdrop,
+                                isDark = isDark,
+                            ) { query -> performSearch(query) }
+                        }
+                    }
+                }
             }
         }
-        root.addView(composeView)
-
-        // 2. RecyclerView
-        recyclerView = RecyclerView(requireContext()).apply {
-            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT).apply {
-                topMargin = 80.dpToPx()
-            }
-            layoutManager = LinearLayoutManager(context)
-            // 使用 padding 而不是 margin，配合 clipToPadding = false 实现悬浮效果
-            // 底部 padding 为底栏留出足够空间：迷你播放条(64dp) + 底部导航(64dp) + 外边距/系统栏(约40dp) = 约168dp
-            setPadding(0, 0, 0, 180.dpToPx()) 
-            clipToPadding = false
-        }
-        root.addView(recyclerView)
-
-        // 3. ProgressBar
-        progressBar = ProgressBar(requireContext()).apply {
-            val size = 48.dpToPx()
-            layoutParams = FrameLayout.LayoutParams(size, size).apply {
-                gravity = android.view.Gravity.CENTER
-            }
-            visibility = View.GONE
-        }
-        root.addView(progressBar)
-
-        setupRecyclerView()
-        loadPrefs()
-        initApiService()
-
-        return root
+        return composeView
     }
 
-    private fun Int.dpToPx(): Int = (this * resources.displayMetrics.density).toInt()
-
     @Composable
-    fun XiaomiSearchBar(onSearch: (String) -> Unit) {
+    fun XiaomiSearchBar(
+        backdrop: LayerBackdrop? = null,
+        isDark: Boolean = true,
+        onSearch: (String) -> Unit,
+    ) {
         var text by remember { mutableStateOf("") }
-        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-        val isTabletLandscape = (configuration.screenLayout and android.content.res.Configuration.SCREENLAYOUT_SIZE_MASK) >= android.content.res.Configuration.SCREENLAYOUT_SIZE_LARGE 
-                && configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        
-        val isDark = if (isTabletLandscape) true else isSystemInDarkTheme()
-        val bgColor = if (isDark) Color.Black.copy(alpha = 0.75f) else Color.White.copy(alpha = 0.8f)
-        
-        val isTv = false
-        var isFocused by remember { mutableStateOf(false) }
         val focusRequester = remember { FocusRequester() }
         val keyboardController = LocalSoftwareKeyboardController.current
 
+        val context = LocalContext.current
+        val homeActivity = remember(context) { context.findHomeActivity() }
+
+        val searchCornerRadius = homeActivity?.searchCornerRadius ?: 26f
+        val searchBlurRadius = homeActivity?.searchBlurRadius ?: 18f
+        val searchRefractionAmount = homeActivity?.searchRefractionAmount ?: -60f
+        val searchRefractionHeight = homeActivity?.searchRefractionHeight ?: 12f
+        val searchBleedAmount = homeActivity?.searchBleedAmount ?: 10f
+        val searchBleedOpacity = homeActivity?.searchBleedOpacity ?: 0.3f
+        val searchChromaMultiplier = homeActivity?.searchChromaMultiplier ?: 1.5f
+        val searchContrast = homeActivity?.searchContrast ?: 0.15f
+        val searchWhitePoint = homeActivity?.searchWhitePoint ?: 0.20f
+
         LaunchedEffect(Unit) {
             focusRequester.requestFocus()
-            if (!isTv) keyboardController?.show()
+            keyboardController?.show()
         }
-        
-        Surface(
+
+        val isDevMode = homeActivity?.isDevMode ?: false
+
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
                 .height(52.dp)
-                .onFocusChanged { isFocused = it.isFocused },
-            shape = RoundedCornerShape(32.dp),
-            color = bgColor,
-            border = if (isTv && isFocused) BorderStroke(2.dp, Color(0xFFFFD700)) else null,
-            tonalElevation = if (isTv && isFocused) 8.dp else 0.dp
+                .clip(RoundedCornerShape(searchCornerRadius.dp))
+                .then(
+                    if (backdrop != null) {
+                        Modifier.drawBackdrop(
+                            backdrop = backdrop,
+                            shape = { RoundedCornerShape(searchCornerRadius.dp) },
+                            effects = {
+                                listOf(
+                                    lens(
+                                        refractionAmount = kotlin.math.abs(searchRefractionAmount),
+                                        refractionHeight = searchRefractionHeight.coerceAtMost(searchCornerRadius),
+                                    ),
+                                    blur(radius = searchBlurRadius),
+                                )
+                            },
+                        )
+                    } else {
+                        Modifier.background(Color(0x331E293B), RoundedCornerShape(searchCornerRadius.dp))
+                    },
+                )
+                .then(
+                    if (isDevMode) {
+                        Modifier.pointerInput(Unit) {
+                            detectVerticalDragGestures { _, dragAmount ->
+                                if (dragAmount > 12f) {
+                                    homeActivity.let {
+                                        it.tuningTarget = "search"
+                                        it.showGlassTuningDialog = true
+                                        it.updateTuningOverlay()
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
         ) {
-            Box(
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                if ((size.width <= 1f) || (size.height <= 1f)) return@Canvas
+
+                val strokeWidthPx = (1.2f + (searchWhitePoint * 0.8f)).dp.toPx()
+                val cornerPx = searchCornerRadius.dp.toPx()
+                val corner = CornerRadius(cornerPx, cornerPx)
+
+                if ((searchBleedAmount > 0.1f) && (searchBleedOpacity > 0.01f)) {
+                    val bleedPx = searchBleedAmount.dp.toPx()
+                    val bleedAlpha = (searchBleedOpacity * 0.35f).coerceIn(0.02f, 0.5f)
+                    val bleedColor = if (isDark) Color(0xFF38BDF8).copy(alpha = bleedAlpha) else Color.White.copy(alpha = bleedAlpha)
+                    drawRoundRect(
+                        color = bleedColor,
+                        cornerRadius = CornerRadius(cornerPx + bleedPx, cornerPx + bleedPx),
+                    )
+                }
+
+                val rimAlpha = (0.25f + (searchChromaMultiplier * 0.1f) + (searchContrast * 0.15f)).coerceIn(0.15f, 0.95f)
+                val rimColor = if (isDark) Color.White.copy(alpha = rimAlpha) else Color.Gray.copy(alpha = rimAlpha)
+
+                drawRoundRect(
+                    color = rimColor,
+                    cornerRadius = corner,
+                    style = Stroke(width = strokeWidthPx),
+                )
+            }
+
+            Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .border(
-                        width = 0.6.dp,
-                        brush = Brush.verticalGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.2f), Color.Transparent)
-                        ),
-                        shape = RoundedCornerShape(32.dp)
-                    )
                     .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null,
-                        tint = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.5f),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    
-                    BasicTextField(
-                        value = text,
-                        onValueChange = { 
-                            text = it
-                            onSearch(it)
-                        },
-                        modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(focusRequester),
-                        singleLine = true,
-                        textStyle = TextStyle(
-                            color = if (isDark) Color.White else Color.Black,
-                            fontSize = 16.sp
-                        ),
-                        cursorBrush = SolidColor(if (isDark) Color.White else Color.Black),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = {
-                            keyboardController?.hide()
-                        }),
-                        decorationBox = { innerTextField ->
+                Icon(
+                    imageVector = Icons.Default.Search,
+                    contentDescription = null,
+                    tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF0F172A),
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(modifier = Modifier.width(10.dp))
+
+                BasicTextField(
+                    value = text,
+                    onValueChange = {
+                        text = it
+                        onSearch(it)
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester),
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = if (isDark) Color.White else Color(0xFF0F172A),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                    ),
+                    cursorBrush = SolidColor(if (isDark) Color.White else Color(0xFF007AFF)),
+                    decorationBox = { innerTextField ->
+                        Box(contentAlignment = Alignment.CenterStart) {
                             if (text.isEmpty()) {
                                 Text(
-                                    text = getString(R.string.search_hint),
-                                    color = if (isDark) Color.White.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.4f),
-                                    fontSize = 16.sp
+                                    text = stringResource(R.string.search_hint),
+                                    style = TextStyle(
+                                        color = if (isDark) Color.White.copy(alpha = 0.55f) else Color(0xFF64748B),
+                                        fontSize = 16.sp,
+                                    ),
                                 )
                             }
                             innerTextField()
                         }
-                    )
+                    },
+                )
 
+                if (text.isNotEmpty()) {
                     IconButton(
                         onClick = {
-                            val intent = android.content.Intent(requireContext(), DonationActivity::class.java)
-                            requireContext().startActivity(intent)
-                        }
+                            text = ""
+                            onSearch("")
+                        },
+                        modifier = Modifier.size(32.dp),
                     ) {
                         Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "更多",
-                            tint = if (isDark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.5f)
+                            imageVector = Icons.Default.Clear,
+                            contentDescription = stringResource(R.string.clear),
+                            tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF475569),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
+
+                IconButton(
+                    onClick = {
+                        (activity as? HomeActivity)?.replaceFragment(SettingsFragment(), "Settings")
+                    },
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = stringResource(R.string.title_settings),
+                        tint = if (isDark) Color.White.copy(alpha = 0.85f) else Color(0xFF0F172A),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
-        }
-    }
-
-    private val playerListener = object : Player.Listener {
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            updatePlaybackState(mediaItem)
-            syncBackground()
-        }
-        override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-            updatePlaybackState((activity as? HomeActivity)?.mediaController?.currentMediaItem)
-        }
-    }
-
-    private fun updatePlaybackState(mediaItem: MediaItem?) {
-        val extras = mediaItem?.mediaMetadata?.extras
-        val albumId = extras?.getString("album_id")
-        val path = extras?.getString("path")
-        adapter.setCurrentMediaId(mediaItem?.mediaId, albumId, path)
-    }
-
-    override fun onStart() {
-        super.onStart()
-        val controller = (activity as? HomeActivity)?.mediaController
-        controller?.let { 
-            it.addListener(playerListener)
-            updatePlaybackState(it.currentMediaItem)
-        }
-    }
-
-    override fun onStop() {
-        super.onStop()
-        (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
-    }
-
-    private fun syncBackground() {
-        if (!isAdded) return
-
-        val isTv = false
-        // 平板横屏模式下，隐藏 Fragment 自己的背景，实现与全局背景完全一体
-        val isTabletLand = (resources.configuration.smallestScreenWidthDp >= 600 || isTv) &&
-                          resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
-
-        if (isTabletLand) {
-            ivFragmentBackground.visibility = View.GONE
-            return
-        }
-
-        val activityBg = (activity as? HomeActivity)?.findViewById<android.widget.ImageView>(R.id.ivBlurBackground)
-        if (activityBg != null && activityBg.drawable != null) {
-            ivFragmentBackground.setImageDrawable(activityBg.drawable)
-            ivFragmentBackground.alpha = activityBg.alpha
-            ivFragmentBackground.visibility = View.VISIBLE
         }
     }
 
     private fun setupRecyclerView() {
-        syncBackground()
         adapter = LibraryAdapter(
-            onItemClick = { item ->
-                if (item.IsFolder) {
-                    val fragment = LibraryFragment().apply {
-                        arguments = Bundle().apply {
-                            putString("artist_id", item.Id)
-                            putString("artist_name", item.Name)
-                        }
-                    }
-                    (activity as? HomeActivity)?.replaceFragment(fragment, "Search_${item.Id}")
-                } else {
-                    playMusic(item, adapter.items)
-                }
-            },
-            onItemDelete = { item -> showDeleteConfirmation(item) }
+            onItemClick = { item -> handleItemClick(item) },
+            onItemDelete = { item -> confirmDelete(item) },
         )
         recyclerView.adapter = adapter
     }
 
-    private fun showDeleteConfirmation(item: EmbyItem) {
-        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_custom_confirm, null)
-        val dialog = androidx.appcompat.app.AlertDialog.Builder(requireContext(), R.style.Theme_Embysic_Dialog)
-            .setView(dialogView)
-            .create()
-
-        dialogView.findViewById<android.widget.TextView>(R.id.dialogTitle).text = getString(R.string.confirm_delete)
-        dialogView.findViewById<android.widget.TextView>(R.id.dialogMessage).text = getString(R.string.delete_msg, item.Name)
-        
-        dialogView.findViewById<android.widget.TextView>(R.id.btnCancel).setOnClickListener {
-            dialog.dismiss()
+    private fun handleItemClick(item: EmbyItem) {
+        if (item.IsFolder) {
+            (activity as? HomeActivity)?.replaceFragment(
+                LibraryFragment.newInstance(item.Id, item.Name),
+                "Library_${item.Id}",
+            )
+        } else {
+            playMusic(item)
         }
-        
-        dialogView.findViewById<android.widget.TextView>(R.id.btnConfirm).setOnClickListener {
-            dialog.dismiss()
-            performDelete(item)
+    }
+
+    internal fun syncBackground() {
+        if (!isAdded || !::ivFragmentBackground.isInitialized) return
+
+        val homeActivity = activity as? HomeActivity
+        if (WallpaperManager.getMode(requireContext()) == "none") {
+            val isDark = homeActivity?.isAppDark() ?: false
+            val noneColorInt = if (isDark) android.graphics.Color.rgb(18, 18, 24) else android.graphics.Color.rgb(248, 250, 252)
+            ivFragmentBackground.setImageDrawable(noneColorInt.toDrawable())
+            ivFragmentBackground.alpha = 1.0f
+            ivFragmentBackground.visibility = View.VISIBLE
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                ivFragmentBackground.setRenderEffect(null)
+            }
+            return
         }
 
-        dialog.show()
+        val isTabletLandscape = ((resources.configuration.screenLayout and android.content.res.Configuration.SCREENLAYOUT_SIZE_MASK) >= android.content.res.Configuration.SCREENLAYOUT_SIZE_LARGE)
+                && (resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE)
 
-        val dm = resources.displayMetrics
-        val px38dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 38f, dm)
-        val pxNeg60dp = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, -60f, dm)
-        val px20dpRefHeight = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 20f, dm)
-        val px10dpBlurRadius = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, 10f, dm)
+        if (isTabletLandscape) {
+            ivFragmentBackground.visibility = View.GONE
+            return
+        }
 
-        val width = (dm.widthPixels * 0.82).toInt()
-        dialog.window?.setLayout(width, ViewGroup.LayoutParams.WRAP_CONTENT)
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            val container = (activity as? HomeActivity)?.findViewById<View>(R.id.fragment_container)
-            
-            dialogView.post {
-                val dialogLoc = IntArray(2)
-                dialogView.getLocationOnScreen(dialogLoc)
-                val containerLoc = IntArray(2)
-                container?.getLocationOnScreen(containerLoc)
-                
-                val relativeLeft = (dialogLoc[0] - containerLoc[0]).toFloat()
-                val relativeTop = (dialogLoc[1] - containerLoc[1]).toFloat()
-                
-                val dialogRect = RectF(
-                    relativeLeft,
-                    relativeTop,
-                    relativeLeft + dialogView.width,
-                    relativeTop + dialogView.height
-                )
-                
-                (activity as? HomeActivity)?.applyDialogEffect(dialogRect, px38dp, pxNeg60dp, px20dpRefHeight, px10dpBlurRadius)
-            }
-            
-            dialog.setOnDismissListener {
-                (activity as? HomeActivity)?.clearDialogEffect()
-            }
-        } else if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            dialog.window?.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            dialog.window?.attributes?.let {
-                it.blurBehindRadius = 64
-                dialog.window?.attributes = it
+        val activityBg = homeActivity?.findViewById<ImageView>(R.id.ivBlurBackground)
+        if ((activityBg != null) && (activityBg.drawable != null)) {
+            ivFragmentBackground.setImageDrawable(activityBg.drawable.constantState?.newDrawable() ?: activityBg.drawable)
+            ivFragmentBackground.alpha = 1.0f
+            ivFragmentBackground.visibility = View.VISIBLE
+            homeActivity.applyWallpaperBlur(ivFragmentBackground)
+        } else {
+            lifecycleScope.launch {
+                val ctx = context ?: return@launch
+                val source = WallpaperManager.getActiveWallpaperSource(ctx)
+                ivFragmentBackground.load(source) {
+                    crossfade(enable = false)
+                    allowHardware(enable = false)
+                }
+                ivFragmentBackground.alpha = 1.0f
+                ivFragmentBackground.visibility = View.VISIBLE
+                homeActivity?.applyWallpaperBlur(ivFragmentBackground)
             }
         }
     }
 
-    private fun performDelete(item: EmbyItem) {
+    private fun confirmDelete(item: EmbyItem) {
+        val ctx = context ?: return
+        androidx.appcompat.app.AlertDialog.Builder(ctx)
+            .setTitle(R.string.confirm_delete)
+            .setMessage(getString(R.string.delete_msg, item.Name))
+            .setPositiveButton(R.string.confirm_delete) { _, _ -> deleteItem(item) }
+            .setNegativeButton(R.string.cancel, null)
+            .show()
+    }
+
+    private fun deleteItem(item: EmbyItem) {
         val service = apiService ?: return
         lifecycleScope.launch {
             try {
                 service.deleteItem(item.Id, authHeader)
-                Toast.makeText(context, R.string.deleted_success, Toast.LENGTH_SHORT).show()
-                // 搜索页删除后通常不需要全局刷新，只需从当前列表移除
-                val currentItems = adapter.items.toMutableList()
-                currentItems.removeAll { it.Id == item.Id }
-                adapter.submitList(currentItems)
+                Toast.makeText(context, getString(R.string.deleted_success, item.Name), Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
-                Toast.makeText(context, getString(R.string.delete_failed, e.message), Toast.LENGTH_SHORT).show()
+                Log.e("SearchFragment", "Error deleting item", e)
+                Toast.makeText(context, getString(R.string.delete_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun performSearch(query: String) {
-        val q = query.trim()
-        if (q.isEmpty()) return
+        if (query.isBlank()) {
+            adapter.submitList(emptyList())
+            return
+        }
 
-        val service = apiService ?: return
+        if (userId.isEmpty() || accessToken.isEmpty()) return
+
+        progressBar.visibility = View.VISIBLE
         lifecycleScope.launch {
-            progressBar.visibility = View.VISIBLE
             try {
-                val response = service.getItems(
+                val response = apiService?.getItems(
                     userId = userId,
-                    searchTerm = q,
-                    includeItemTypes = "Audio,MusicArtist",
+                    searchTerm = query,
+                    includeItemTypes = "Audio",
                     recursive = true,
+                    limit = 50,
                     auth = authHeader,
-                    limit = 100
                 )
-
-                // 为了完全匹配 Emby 服务器的文件夹排序，我们直接使用服务器返回的顺序：
-                // 1. 提取非音乐项（文件夹、专辑、歌手等），保持服务器原始排序（支持自然排序）。
-                // 2. 提取音乐项（Audio），并按碟片号 + 音轨号进行人工排序。
-                // 3. 最后将两者合并，确保文件夹在上方。
-                val allItems = response.Items
-                val folders = allItems.filter { it.Type != "Audio" && it.Name != "Artwork" }
-                val music = allItems.filter { it.Type == "Audio" }.sortedWith { a, b ->
-                    val discA = a.ParentIndexNumber ?: 1
-                    val discB = b.ParentIndexNumber ?: 1
-                    if (discA != discB) {
-                        discA.compareTo(discB)
-                    } else {
-                        val idxA = a.IndexNumber ?: Int.MAX_VALUE
-                        val idxB = b.IndexNumber ?: Int.MAX_VALUE
-                        if (idxA != idxB) {
-                            idxA.compareTo(idxB)
-                        } else {
-                            a.Name.compareTo(b.Name, ignoreCase = true)
-                        }
-                    }
-                }
-                val results = folders + music
-                adapter.submitList(results, context)
-            } catch (_: Exception) {
-                // 静默处理取消异常和 Job was cancelled 错误
+                val items = response?.Items ?: emptyList()
+                val ctx = context ?: return@launch
+                adapter.submitList(items, ctx)
+            } catch (e: Exception) {
+                Log.e("SearchFragment", "Search error", e)
+                Toast.makeText(context, getString(R.string.load_failed, e.message ?: ""), Toast.LENGTH_SHORT).show()
             } finally {
                 progressBar.visibility = View.GONE
             }
         }
     }
 
-    private fun playMusic(item: EmbyItem, allItems: List<EmbyItem>) {
+    private fun playMusic(item: EmbyItem) {
         val controller = (activity as? HomeActivity)?.mediaController ?: return
 
-        // 构建一个只包含当前歌曲的列表，然后通过 updatePlaylistByMode 自动拉取同文件夹列表
         val mediaItem = MediaItemUtils.buildMediaItem(requireContext(), item, serverUrl, accessToken, userId)
         controller.setMediaItem(mediaItem)
         
         controller.prepare()
         controller.play()
         
-        // 无论当前模式是什么，都根据当前模式更新为同文件夹或随机列表
         (activity as? HomeActivity)?.updatePlaylistByMode(controller.shuffleModeEnabled)
         (activity as? HomeActivity)?.showPlayer()
     }
 
     private fun loadPrefs() {
-        requireContext().getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE).apply {
+        val ctx = context ?: return
+        ctx.getSharedPreferences("embysic_prefs", AppCompatActivity.MODE_PRIVATE).apply {
             serverUrl = getString("server_url", "") ?: ""
             accessToken = getString("access_token", "") ?: ""
             userId = getString("user_id", "") ?: ""
@@ -469,6 +534,12 @@ class SearchFragment : Fragment() {
     }
 
     private fun initApiService() {
-        apiService = RetrofitClient.getEmbyApiService(requireContext())
+        val ctx = context ?: return
+        apiService = RetrofitClient.getEmbyApiService(ctx)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        syncBackground()
     }
 }

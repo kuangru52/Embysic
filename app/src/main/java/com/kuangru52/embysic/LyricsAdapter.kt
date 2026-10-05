@@ -1,28 +1,33 @@
 package com.kuangru52.embysic
 
-import android.content.Context
-import android.util.TypedValue
-import androidx.annotation.AttrRes
-import androidx.core.content.ContextCompat
-import android.view.LayoutInflater
-import android.view.View
+import android.annotation.SuppressLint
+import android.os.Handler
+import android.os.Looper
 import android.view.ViewGroup
-import android.widget.TextView
-import android.content.res.Configuration
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.media3.common.util.UnstableApi
 import androidx.recyclerview.widget.RecyclerView
 
 class LyricsAdapter(
     private val onItemClick: () -> Unit,
-    private val onSeekTo: ((Long) -> Unit)? = null
+    private val onSeekTo: ((Long) -> Unit)? = null,
 ) : RecyclerView.Adapter<LyricsAdapter.ViewHolder>() {
 
-    private fun Context.getColorFromAttr(@AttrRes attr: Int): Int {
-        val typedValue = TypedValue()
-        theme.resolveAttribute(attr, typedValue, true)
-        return typedValue.data
-    }
-
     var lines: List<LrcLine> = emptyList()
+        @SuppressLint("NotifyDataSetChanged")
         set(value) {
             field = value
             currentLineIndex = -1
@@ -31,7 +36,7 @@ class LyricsAdapter(
 
     private var currentLineIndex = -1
     private var clickedLineIndex = -1
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val handler = Handler(Looper.getMainLooper())
     private val resetClickedIndexRunnable = Runnable {
         val oldIndex = clickedLineIndex
         clickedLineIndex = -1
@@ -39,8 +44,8 @@ class LyricsAdapter(
     }
 
     fun updateActiveLine(timeMs: Long): Int {
-        val index = lines.indexOfLast { it.timeMs in 0..timeMs }
-        if (index != currentLineIndex && index != -1) {
+        val index = lines.indexOfLast { (it.timeMs >= 0) && (it.timeMs <= timeMs) }
+        if ((index != currentLineIndex) && (index != -1)) {
             val oldIndex = currentLineIndex
             currentLineIndex = index
             if (oldIndex != -1) notifyItemChanged(oldIndex)
@@ -50,72 +55,90 @@ class LyricsAdapter(
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_lyric, parent, false)
-        return ViewHolder(view)
+        val composeView = ComposeView(parent.context)
+        return ViewHolder(composeView)
     }
 
-    @androidx.media3.common.util.UnstableApi
+    @UnstableApi
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
         val line = lines[position]
-            
-        val textView = holder.itemView.findViewById<TextView>(R.id.tvLyricLine)
-        val ivPlayIndicator = holder.itemView.findViewById<android.widget.ImageView>(R.id.ivPlayIndicator)
-        val llLyricContent = holder.itemView.findViewById<View>(R.id.llLyricContent)
-        
-        textView.text = line.text
-        
-        // 显示/隐藏播放反馈图标
-        ivPlayIndicator?.visibility = if (position == clickedLineIndex) View.VISIBLE else View.GONE
-        
-        // 增加文字阴影，防止背景亮时看不清（播放页始终是深色背景）
-        textView.setShadowLayer(4f, 2f, 2f, 0x80000000.toInt())
-        
-        val isMetadata = line.timeMs == -1L
-        
-        if (isMetadata) {
-            textView.setTextColor(0xB3FFFFFF.toInt()) // 与歌手名一致
-            textView.textSize = 13f
-            textView.alpha = 1.0f
-            textView.paint.isFakeBoldText = false
-        } else {
-            if (position == currentLineIndex) {
-                textView.setTextColor(android.graphics.Color.WHITE) // 与歌曲标题一致
-                textView.textSize = 18f
-                textView.alpha = 1.0f
-                textView.paint.isFakeBoldText = true
-            } else {
-                textView.setTextColor(0xB3FFFFFF.toInt()) // 与歌手名一致
-                textView.textSize = 15f
-                textView.alpha = 1.0f
-                textView.paint.isFakeBoldText = false
-            }
-        }
+        val isCurrent = position == currentLineIndex
+        val isClicked = position == clickedLineIndex
 
-        // 点击歌词内容区域（文字+图标）：如果是歌词则跳转并显示反馈，如果是元数据则返回唱片页
-        llLyricContent?.setOnClickListener {
-            if (line.timeMs >= 0 && onSeekTo != null) {
-                // 显示点击反馈
-                val oldClicked = clickedLineIndex
-                clickedLineIndex = holder.adapterPosition
-                if (oldClicked != -1) notifyItemChanged(oldClicked)
-                if (clickedLineIndex != -1) notifyItemChanged(clickedLineIndex)
-                
-                handler.removeCallbacks(resetClickedIndexRunnable)
-                handler.postDelayed(resetClickedIndexRunnable, 2000)
+        (holder.itemView as ComposeView).setContent {
+            LyricItemRow(
+                line = line,
+                isCurrent = isCurrent,
+                isClicked = isClicked,
+                onContentClick = {
+                    if ((line.timeMs >= 0) && (onSeekTo != null)) {
+                        val oldClicked = clickedLineIndex
+                        clickedLineIndex = holder.bindingAdapterPosition
+                        if (oldClicked != -1) notifyItemChanged(oldClicked)
+                        if (clickedLineIndex != -1) notifyItemChanged(clickedLineIndex)
 
-                onSeekTo.invoke(line.timeMs)
-            } else {
-                onItemClick()
-            }
-        }
+                        handler.removeCallbacks(resetClickedIndexRunnable)
+                        handler.postDelayed(resetClickedIndexRunnable, 2000)
 
-        // 点击行内剩余空白区域（FrameLayout）直接返回唱片页
-        holder.itemView.setOnClickListener {
-            onItemClick()
+                        onSeekTo.invoke(line.timeMs)
+                    } else {
+                        onItemClick()
+                    }
+                },
+            ) { onItemClick() }
         }
     }
 
     override fun getItemCount(): Int = lines.size
 
-    class ViewHolder(view: View) : RecyclerView.ViewHolder(view)
+    class ViewHolder(view: ComposeView) : RecyclerView.ViewHolder(view)
+}
+
+@Composable
+fun LyricItemRow(
+    line: LrcLine,
+    isCurrent: Boolean,
+    isClicked: Boolean,
+    onContentClick: () -> Unit,
+    onBlankClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onBlankClick() }
+            .padding(vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable { onContentClick() }
+                .padding(horizontal = 40.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            if (isClicked) {
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_play_vector),
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(16.dp)
+                        .padding(end = 8.dp),
+                )
+            }
+
+            val isMetadata = line.timeMs == -1L
+            val fontSize = if (isMetadata) 13.sp else if (isCurrent) 18.sp else 15.sp
+            val textColor = if (isCurrent && !isMetadata) Color.White else Color.White.copy(alpha = 0.7f)
+            val fontWeight = if (isCurrent && !isMetadata) FontWeight.Bold else FontWeight.Normal
+
+            Text(
+                text = line.text,
+                fontSize = fontSize,
+                fontWeight = fontWeight,
+                color = textColor,
+                textAlign = TextAlign.Center,
+            )
+        }
+    }
 }

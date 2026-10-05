@@ -1,12 +1,10 @@
 package com.kuangru52.embysic
 
-import java.util.regex.Pattern
-
 data class CueSheet(
     val albumTitle: String? = null,
     val albumArtist: String? = null,
     val fileName: String? = null,
-    val tracks: List<CueTrack> = emptyList()
+    val tracks: List<CueTrack> = emptyList(),
 )
 
 data class CueTrack(
@@ -14,10 +12,12 @@ data class CueTrack(
     val title: String,
     val artist: String?,
     val startTimeMs: Long,
-    var durationMs: Long = 0 // 持续时间需要通过下一首的起始时间计算
+    var durationMs: Long = 0,
 )
 
+@Suppress("unused")
 object CueParser {
+    @Suppress("ASSIGNED_VALUE_IS_NEVER_READ", "UNUSED_VALUE")
     fun parse(content: String): CueSheet {
         val lines = content.lines().map { it.trim() }
         var albumTitle: String? = null
@@ -25,8 +25,8 @@ object CueParser {
         var fileName: String? = null
         val tracks = mutableListOf<CueTrack>()
 
-        var currentTrackNumber: Int = -1
-        var currentTrackTitle: String = ""
+        var currentTrackNumber = -1
+        var currentTrackTitle = ""
         var currentTrackArtist: String? = null
         var isParsingTrack = false
 
@@ -40,24 +40,25 @@ object CueParser {
                     albumArtist = line.removeSurroundingQuotes("PERFORMER")
                 }
                 upperLine.startsWith("FILE") -> {
-                    // 提取文件名: FILE "name.flac" WAVE
                     val firstQuote = line.indexOf("\"")
                     val lastQuote = line.lastIndexOf("\"")
-                    if (firstQuote != -1 && lastQuote != -1 && firstQuote != lastQuote) {
+                    if (((firstQuote != -1) && (lastQuote != -1)) && (firstQuote != lastQuote)) {
                         fileName = line.substring(firstQuote + 1, lastQuote)
                     } else {
-                        // 如果没有引号，尝试按空格切分
                         val parts = line.split(" ")
-                        if (parts.size >= 2) fileName = parts[1]
+                        if (parts.size >= 2) {
+                            fileName = parts[1]
+                        }
                     }
                 }
                 upperLine.startsWith("TRACK") -> {
                     isParsingTrack = true
-                    val parts = line.split(Regex("\\s+"))
+                    val parts = line.split("\\s+".toRegex())
                     if (parts.size >= 2) {
-                        currentTrackNumber = parts[1].toIntOrNull() ?: -1
+                        currentTrackNumber = parts[1].toIntOrNull() ?: (tracks.size + 1)
                     }
-                    currentTrackArtist = albumArtist
+                    currentTrackTitle = ""
+                    currentTrackArtist = null
                 }
                 upperLine.startsWith("TITLE") && isParsingTrack -> {
                     currentTrackTitle = line.removeSurroundingQuotes("TITLE")
@@ -66,59 +67,49 @@ object CueParser {
                     currentTrackArtist = line.removeSurroundingQuotes("PERFORMER")
                 }
                 upperLine.startsWith("INDEX 01") -> {
-                    val timeStr = line.substringAfter("INDEX 01").trim()
-                    val timeMs = parseTimeToMs(timeStr)
-                    if (currentTrackNumber != -1) {
-                        tracks.add(CueTrack(currentTrackNumber, currentTrackTitle, currentTrackArtist, timeMs))
-                    }
+                    val timeStr = line.replace("INDEX 01", "").trim()
+                    val timeMs = parseCueTime(timeStr)
+                    tracks.add(
+                        CueTrack(
+                            number = currentTrackNumber,
+                            title = currentTrackTitle,
+                            artist = currentTrackArtist ?: albumArtist,
+                            startTimeMs = timeMs,
+                        ),
+                    )
                 }
             }
         }
 
-        // 计算每一首的持续时间
-        for (i in 0 until tracks.size - 1) {
+        // 计算每轨的 duration
+        for (i in 0 until (tracks.size - 1)) {
             tracks[i].durationMs = tracks[i + 1].startTimeMs - tracks[i].startTimeMs
         }
-        // 注意：最后一首的持续时间需要配合整轨文件的总长度才能计算，暂时设为 0
 
-        return CueSheet(albumTitle, albumArtist, fileName, tracks)
+        return CueSheet(
+            albumTitle = albumTitle,
+            albumArtist = albumArtist,
+            fileName = fileName,
+            tracks = tracks,
+        )
     }
 
-    private fun String.removeSurroundingQuotes(prefix: String): String {
-        val upper = this.uppercase()
-        val pUpper = prefix.uppercase()
-        if (upper.startsWith(pUpper)) {
-            val content = this.substring(prefix.length).trim()
-            return if (content.startsWith("\"") && content.endsWith("\"")) {
-                content.removeSurrounding("\"")
-            } else {
-                content
-            }
-        }
-        return this
-    }
-
-    private fun parseTimeToMs(time: String): Long {
-        // 格式通常为 00:00:00 (分:秒:帧)
-        val parts = time.split(":")
-        if (parts.size < 2) return 0L
-        
-        val minutes: Long
-        val seconds: Long
-        val frames: Long
-        
+    private fun parseCueTime(timeStr: String): Long {
+        val parts = timeStr.split(":")
         if (parts.size == 3) {
-            minutes = parts[0].toLongOrNull() ?: 0L
-            seconds = parts[1].toLongOrNull() ?: 0L
-            frames = parts[2].toLongOrNull() ?: 0L
-        } else {
-            // 处理 00:00 格式
-            minutes = parts[0].toLongOrNull() ?: 0L
-            seconds = parts[1].toLongOrNull() ?: 0L
-            frames = 0L
+            val min = parts[0].toLongOrNull() ?: 0L
+            val sec = parts[1].toLongOrNull() ?: 0L
+            val frame = parts[2].toLongOrNull() ?: 0L
+            return ((min * 60L) * 1000L) + (sec * 1000L) + ((frame * 1000L) / 75L)
         }
-        
-        // 1分=60秒，1秒=1000毫秒，1帧=1/75秒 ≈ 13.33毫秒
-        return (minutes * 60 * 1000) + (seconds * 1000) + (frames * 1000 / 75)
+        return 0L
+    }
+
+    private fun String.removeSurroundingQuotes(keyword: String): String {
+        var str = this.replaceFirst(keyword, "", ignoreCase = true).trim()
+        if (((str.startsWith("\"")) && (str.endsWith("\""))) && (str.length >= 2)) {
+            str = str.substring(1, str.length - 1)
+        }
+        return str
     }
 }

@@ -45,6 +45,7 @@ import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 import kotlinx.coroutines.delay
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -205,11 +206,12 @@ fun BottomTabsUI(
                             shape = { RoundedCornerShape(cornerRadius.dp) },
                             effects = {
                                 listOf(
+                                    vibrancy(),
+                                    blur(radius = blurRadius),
                                     lens(
                                         refractionAmount = kotlin.math.abs(refractionAmount),
                                         refractionHeight = refractionHeight.coerceAtMost(cornerRadius),
                                     ),
-                                    blur(radius = blurRadius),
                                 )
                             },
                         )
@@ -237,12 +239,11 @@ fun BottomTabsUI(
                 val corner = CornerRadius(cornerPx, cornerPx)
 
                 if ((bleedAmount > 0.1f) && (bleedOpacity > 0.01f)) {
-                    val bleedPx = bleedAmount.dp.toPx()
                     val bleedAlpha = (bleedOpacity * 0.35f).coerceIn(0.02f, 0.5f)
                     val bleedColor = if (isDark) Color(0xFF38BDF8).copy(alpha = bleedAlpha) else Color.White.copy(alpha = bleedAlpha)
                     drawRoundRect(
                         color = bleedColor,
-                        cornerRadius = CornerRadius(cornerPx + bleedPx, cornerPx + bleedPx),
+                        cornerRadius = corner,
                     )
                 }
 

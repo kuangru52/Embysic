@@ -8,11 +8,17 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.view.animation.Animation
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.Toast
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.core.graphics.drawable.toDrawable
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.MediaItem
@@ -53,20 +59,94 @@ class FavoriteFragment : Fragment() {
             return "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceId(ctx)}\", DeviceId=\"${MediaItemUtils.getDeviceId(ctx)}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
         }
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
-        val ctx = requireContext()
-        val composeView = ComposeView(ctx)
-        composeView.setContent {
-            RecentFragmentContent { _, rv, bg, pb ->
-                ivFragmentBackground = bg
-                recyclerView = rv
-                progressBar = pb
+    private var fragmentBackdrop: com.kyant.backdrop.backdrops.LayerBackdrop? = null
 
-                syncBackground()
-                setupRecyclerView()
-                loadPrefs()
-                initApiService()
-                loadFavoriteItems()
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
+        val composeView = ComposeView(requireContext())
+        composeView.setContent {
+            val favoriteBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+            fragmentBackdrop = favoriteBackdrop
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val homeActivity = androidx.compose.runtime.remember(context) { context.findHomeActivity() }
+
+            androidx.compose.runtime.SideEffect {
+                homeActivity?.wallpaperBackdrop = favoriteBackdrop
+                homeActivity?.homeBackdrop = favoriteBackdrop
+            }
+
+            androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                // 1. 全屏壁纸底层：挂载 layerBackdrop(favoriteBackdrop) 抓取壁纸！
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx ->
+                        ImageView(ctx).apply {
+                            id = R.id.ivFragmentBackground
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                            )
+                            ivFragmentBackground = this
+                            syncBackground()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(favoriteBackdrop),
+                )
+
+                // 2. 页面交互层 (RecyclerView + ProgressBar)
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { ctx ->
+                        val root = FrameLayout(ctx).apply {
+                            id = R.id.fragment_recent_root
+                        }
+                        val contentContainer = FrameLayout(ctx).apply {
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                            )
+                        }
+                        val rv = RecyclerView(ctx).apply {
+                            id = R.id.rvRecent
+                            setPadding(0, 0, 0, (170 * ctx.resources.displayMetrics.density).toInt())
+                            clipToPadding = false
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                            )
+                        }
+                        val pb = ProgressBar(ctx).apply {
+                            id = R.id.progressBar
+                            visibility = View.GONE
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.WRAP_CONTENT,
+                                FrameLayout.LayoutParams.WRAP_CONTENT,
+                                android.view.Gravity.CENTER,
+                            )
+                        }
+
+                        contentContainer.addView(rv)
+                        contentContainer.addView(pb)
+                        root.addView(contentContainer)
+
+                        ViewCompat.setOnApplyWindowInsetsListener(contentContainer) { v, insets ->
+                            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                            v.setPadding(0, systemBars.top, 0, 0)
+                            insets
+                        }
+
+                        recyclerView = rv
+                        progressBar = pb
+
+                        setupRecyclerView()
+                        loadPrefs()
+                        initApiService()
+                        loadFavoriteItems()
+
+                        root
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
         return composeView
@@ -152,6 +232,7 @@ class FavoriteFragment : Fragment() {
         adapter = LibraryAdapter(
             onItemClick = { item -> playMusic(item) },
             onItemDelete = { item -> removeFavorite(item) },
+            backdropProvider = { fragmentBackdrop },
         )
         recyclerView.layoutManager = LinearLayoutManager(context)
         recyclerView.adapter = adapter

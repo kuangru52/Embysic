@@ -8,6 +8,7 @@ import android.util.LruCache
 import android.view.ViewGroup
 import androidx.appcompat.app.AppCompatActivity
 import androidx.media3.common.util.UnstableApi
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -19,8 +20,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.res.painterResource
@@ -28,6 +31,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.recyclerview.widget.DiffUtil
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import coil.compose.AsyncImage
@@ -37,6 +44,7 @@ class LibraryAdapter(
     private val onItemClick: (EmbyItem) -> Unit,
     private val onItemDoubleClick: ((EmbyItem) -> Unit)? = null,
     private val onItemDelete: ((EmbyItem) -> Unit)? = null,
+    var backdropProvider: (() -> com.kyant.backdrop.backdrops.LayerBackdrop?)? = null,
     private val onSelectionModeChanged: ((Boolean) -> Unit)? = null,
 ) : ListAdapter<EmbyItem, LibraryAdapter.ViewHolder>(DiffCallback()) {
 
@@ -150,6 +158,8 @@ class LibraryAdapter(
         }
         val serverImageUrl = "${serverUrl.trimEnd('/')}/emby/Items/$imageId/Images/Primary?MaxWidth=300&api_key=$accessToken"
 
+        val activeBackdrop = backdropProvider?.invoke()
+
         (holder.itemView as ComposeView).setContent {
             LibraryItemRow(
                 item = item,
@@ -158,6 +168,7 @@ class LibraryAdapter(
                 showDelete = showDelete,
                 imageUrl = serverImageUrl,
                 cachedBitmap = bitmapCache[item.Id],
+                backdrop = activeBackdrop,
                 onClick = {
                     if (item.Id == "BACK_FOLDER") return@LibraryItemRow
                     if (isSelectionMode) {
@@ -233,6 +244,7 @@ fun LibraryItemRow(
     showDelete: Boolean,
     imageUrl: String,
     cachedBitmap: Bitmap?,
+    backdrop: com.kyant.backdrop.backdrops.LayerBackdrop? = null,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onDeleteClick: () -> Unit,
@@ -247,16 +259,22 @@ fun LibraryItemRow(
     val isParentFolder = item.Id == "BACK_FOLDER"
     val isFolderLike = (item.IsFolder) || (item.Type == "CollectionFolder") || (item.Type == "MusicArtist") || (item.Type == "MusicAlbum") || (isParentFolder)
 
-    val bgColor = when {
-        isParentFolder -> Color(0x22EE6C4D)
-        isSelected || isPlayingThis -> Color(0x22FFA000)
-        else -> if (isDark) Color(0x18FFFFFF) else Color(0x12000000)
-    }
+    val activeBackdrop = backdrop ?: homeActivity?.wallpaperBackdrop ?: homeActivity?.homeBackdrop
 
-    val borderStroke = when {
-        isParentFolder -> androidx.compose.foundation.BorderStroke(1.dp, Color(0x44EE6C4D))
-        isSelected || isPlayingThis -> androidx.compose.foundation.BorderStroke(1.dp, Color(0x44FFA000))
-        else -> androidx.compose.foundation.BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.12f))
+    val cardCornerRadius = 12f
+    val searchBlurRadius = homeActivity?.searchBlurRadius ?: 18f
+    val searchRefractionAmount = homeActivity?.searchRefractionAmount ?: -60f
+    val searchRefractionHeight = homeActivity?.searchRefractionHeight ?: 12f
+    val searchBleedAmount = homeActivity?.searchBleedAmount ?: 10f
+    val searchBleedOpacity = homeActivity?.searchBleedOpacity ?: 0.3f
+    val searchChromaMultiplier = homeActivity?.searchChromaMultiplier ?: 1.5f
+    val searchContrast = homeActivity?.searchContrast ?: 0.15f
+    val searchWhitePoint = homeActivity?.searchWhitePoint ?: 0.20f
+
+    val glassBgColor = when {
+        isParentFolder -> Color(0x33EE6C4D)
+        isSelected || isPlayingThis -> Color(0x33FFA000)
+        else -> if (isDark) Color(0x281E293B) else Color(0x33FFFFFF)
     }
 
     val textColor = when {
@@ -282,18 +300,83 @@ fun LibraryItemRow(
     val qualityTag = if (!isFolderLike) getQualityTag(item) else null
     val isFavorite = item.UserData?.IsFavorite == true
 
-    Surface(
-        color = bgColor,
-        shape = RoundedCornerShape(12.dp),
+    Box(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 2.5.dp)
+            .clip(RoundedCornerShape(cardCornerRadius.dp))
+            .then(
+                if (activeBackdrop != null) {
+                    Modifier.drawBackdrop(
+                        backdrop = activeBackdrop,
+                        shape = { RoundedCornerShape(cardCornerRadius.dp) },
+                        effects = {
+                            listOf(
+                                vibrancy(),
+                                blur(radius = searchBlurRadius),
+                                lens(
+                                    refractionAmount = kotlin.math.abs(searchRefractionAmount),
+                                    refractionHeight = searchRefractionHeight.coerceAtMost(cardCornerRadius),
+                                ),
+                            )
+                        },
+                    )
+                } else {
+                    Modifier.background(glassBgColor, RoundedCornerShape(cardCornerRadius.dp))
+                }
+            )
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onLongClick,
-            ),
-        border = borderStroke
+            )
     ) {
+        Canvas(modifier = Modifier.matchParentSize()) {
+            if ((size.width <= 1f) || (size.height <= 1f)) return@Canvas
+
+            val strokeWidthPx = (1.2f + (searchWhitePoint * 0.8f)).dp.toPx()
+            val cornerPx = cardCornerRadius.dp.toPx()
+            val corner = CornerRadius(cornerPx, cornerPx)
+
+            // 仅在选中、正在播放或上级文件夹状态下，在 Canvas 中叠加轻微状态着色，普通卡片保持与 SearchBar 100% 一致的纯净无遮挡液态透镜折射与高斯模糊
+            if (isParentFolder || isSelected || isPlayingThis) {
+                val statusTint = when {
+                    isParentFolder -> Color(0x22EE6C4D)
+                    else -> Color(0x22FFA000)
+                }
+                drawRoundRect(
+                    color = statusTint,
+                    cornerRadius = corner,
+                )
+            }
+
+            if ((searchBleedAmount > 0.1f) && (searchBleedOpacity > 0.01f)) {
+                val bleedAlpha = (searchBleedOpacity * 0.35f).coerceIn(0.02f, 0.5f)
+                val bleedColor = when {
+                    isParentFolder -> Color(0xFFEE6C4D).copy(alpha = bleedAlpha)
+                    isSelected || isPlayingThis -> Color(0xFFFFA000).copy(alpha = bleedAlpha)
+                    isDark -> Color(0xFF38BDF8).copy(alpha = bleedAlpha)
+                    else -> Color.White.copy(alpha = bleedAlpha)
+                }
+                drawRoundRect(
+                    color = bleedColor,
+                    cornerRadius = corner,
+                )
+            }
+
+            val rimAlpha = (0.25f + (searchChromaMultiplier * 0.1f) + (searchContrast * 0.15f)).coerceIn(0.15f, 0.95f)
+            val rimColor = when {
+                isParentFolder -> Color(0xFFEE6C4D).copy(alpha = rimAlpha)
+                isSelected || isPlayingThis -> Color(0xFFFFA000).copy(alpha = rimAlpha)
+                isDark -> Color.White.copy(alpha = rimAlpha)
+                else -> Color.Gray.copy(alpha = rimAlpha)
+            }
+
+            drawRoundRect(
+                color = rimColor,
+                cornerRadius = corner,
+                style = Stroke(width = strokeWidthPx),
+            )
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()

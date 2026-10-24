@@ -61,6 +61,7 @@ import com.kyant.backdrop.backdrops.rememberLayerBackdrop
 import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 import kotlinx.coroutines.launch
 
 @UnstableApi
@@ -82,6 +83,8 @@ class SearchFragment : Fragment() {
     private lateinit var recyclerView: RecyclerView
     private lateinit var progressBar: ProgressBar
     private lateinit var adapter: LibraryAdapter
+
+    private var fragmentBackdrop: LayerBackdrop? = null
 
     private var apiService: EmbyApiService? = null
     private var serverUrl = ""
@@ -117,6 +120,10 @@ class SearchFragment : Fragment() {
                     LocalConfiguration provides localizedContext.resources.configuration,
                 ) {
                     val searchBackdrop = rememberLayerBackdrop()
+                    fragmentBackdrop = searchBackdrop
+                    SideEffect {
+                        homeActivity?.wallpaperBackdrop = searchBackdrop
+                    }
 
                     Box(modifier = Modifier.fillMaxSize()) {
                         // 1. 全屏壁纸底层：单独挂载 layerBackdrop(searchBackdrop)，纯抓取背景图！
@@ -256,11 +263,12 @@ class SearchFragment : Fragment() {
                             shape = { RoundedCornerShape(searchCornerRadius.dp) },
                             effects = {
                                 listOf(
+                                    vibrancy(),
+                                    blur(radius = searchBlurRadius),
                                     lens(
                                         refractionAmount = kotlin.math.abs(searchRefractionAmount),
                                         refractionHeight = searchRefractionHeight.coerceAtMost(searchCornerRadius),
                                     ),
-                                    blur(radius = searchBlurRadius),
                                 )
                             },
                         )
@@ -294,12 +302,11 @@ class SearchFragment : Fragment() {
                 val corner = CornerRadius(cornerPx, cornerPx)
 
                 if ((searchBleedAmount > 0.1f) && (searchBleedOpacity > 0.01f)) {
-                    val bleedPx = searchBleedAmount.dp.toPx()
                     val bleedAlpha = (searchBleedOpacity * 0.35f).coerceIn(0.02f, 0.5f)
                     val bleedColor = if (isDark) Color(0xFF38BDF8).copy(alpha = bleedAlpha) else Color.White.copy(alpha = bleedAlpha)
                     drawRoundRect(
                         color = bleedColor,
-                        cornerRadius = CornerRadius(cornerPx + bleedPx, cornerPx + bleedPx),
+                        cornerRadius = corner,
                     )
                 }
 
@@ -397,6 +404,7 @@ class SearchFragment : Fragment() {
         adapter = LibraryAdapter(
             onItemClick = { item -> handleItemClick(item) },
             onItemDelete = { item -> confirmDelete(item) },
+            backdropProvider = { fragmentBackdrop },
         )
         recyclerView.adapter = adapter
     }

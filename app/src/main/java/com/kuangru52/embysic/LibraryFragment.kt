@@ -23,6 +23,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.graphics.drawable.toDrawable
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.remember
+import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.compose.ui.Modifier
 import coil.load
 import kotlinx.coroutines.launch
@@ -62,138 +64,162 @@ class LibraryFragment : Fragment() {
             return "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(ctx)}\", DeviceId=\"${MediaItemUtils.getDeviceId(ctx)}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
         }
 
+    private var fragmentBackdrop: com.kyant.backdrop.backdrops.LayerBackdrop? = null
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val composeView = androidx.compose.ui.platform.ComposeView(requireContext())
         composeView.setContent {
-            androidx.compose.ui.viewinterop.AndroidView(
-                factory = { context ->
-                    val swipeBack = SwipeBackLayout(context).apply { id = R.id.swipeBackLayout }
-                    val frameRoot = android.widget.FrameLayout(context)
-                    val bg = android.widget.ImageView(context).apply {
-                        id = R.id.ivFragmentBackground
-                        scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
-                        setBackgroundColor(android.graphics.Color.BLACK)
-                    }
-                    val constraint = androidx.constraintlayout.widget.ConstraintLayout(context)
-                    val searchCompose = androidx.compose.ui.platform.ComposeView(context).apply {
-                        id = R.id.search_bar_compose
-                    }
-                    val rv = RecyclerView(context).apply {
-                        id = R.id.rvLibrary
-                        setPadding(0, 0, 0, (170 * context.resources.displayMetrics.density).toInt())
-                        clipToPadding = false
-                    }
-                    val selBar = android.widget.LinearLayout(context).apply {
-                        id = R.id.selectionBar
-                        orientation = android.widget.LinearLayout.HORIZONTAL
-                        gravity = android.view.Gravity.CENTER_VERTICAL
-                        setPadding((16 * context.resources.displayMetrics.density).toInt(), 0, (16 * context.resources.displayMetrics.density).toInt(), 0)
-                        visibility = View.GONE
-                    }
-                    val btnCancel = TextView(context).apply {
-                        id = R.id.btnCancelSelection
-                        text = getString(R.string.cancel)
-                        textSize = 16f
-                    }
-                    val spaceView = View(context)
-                    val btnDel = TextView(context).apply {
-                        id = R.id.btnDeleteBatch
-                        text = getString(R.string.delete_selected)
-                        setTextColor(android.graphics.Color.RED)
-                        textSize = 16f
-                    }
-                    selBar.addView(btnCancel)
-                    selBar.addView(spaceView, android.widget.LinearLayout.LayoutParams(0, 0, 1f))
-                    selBar.addView(btnDel)
+            val libraryBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+            fragmentBackdrop = libraryBackdrop
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val homeActivity = remember(context) { context.findHomeActivity() }
 
-                    val pb = ProgressBar(context).apply {
-                        id = R.id.progressBar
-                        visibility = View.GONE
-                    }
+            androidx.compose.runtime.SideEffect {
+                homeActivity?.wallpaperBackdrop = libraryBackdrop
+                homeActivity?.homeBackdrop = libraryBackdrop
+            }
 
-                    val searchParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(0, androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT).apply {
-                        topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                        startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                        endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                    }
-                    val rvParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(0, 0).apply {
-                        topToBottom = R.id.search_bar_compose
-                        bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                        startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                        endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                    }
-                    val selParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_PARENT, (64 * context.resources.displayMetrics.density).toInt()).apply {
-                        bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                        bottomMargin = (180 * context.resources.displayMetrics.density).toInt()
-                    }
-                    val pbParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT, androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT).apply {
-                        topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                        bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                        startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                        endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
-                    }
+            androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                // 1. 全屏壁纸底层：单独挂载 layerBackdrop(libraryBackdrop)，为卡片提供完全一致的抓图源！
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { context ->
+                        android.widget.ImageView(context).apply {
+                            id = R.id.ivFragmentBackground
+                            scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                            ivFragmentBackground = this
+                            syncBackground()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(libraryBackdrop),
+                )
 
-                    constraint.addView(searchCompose, searchParams)
-                    constraint.addView(rv, rvParams)
-                    constraint.addView(selBar, selParams)
-                    constraint.addView(pb, pbParams)
+                // 2. 前景 Interaction 层：SwipeBackLayout, RecyclerView, selectionBar 等
+                androidx.compose.ui.viewinterop.AndroidView(
+                    factory = { context ->
+                        val swipeBack = SwipeBackLayout(context).apply { id = R.id.swipeBackLayout }
+                        val frameRoot = android.widget.FrameLayout(context)
+                        val constraint = androidx.constraintlayout.widget.ConstraintLayout(context)
+                        val searchCompose = androidx.compose.ui.platform.ComposeView(context).apply {
+                            id = R.id.search_bar_compose
+                        }
+                        val rv = RecyclerView(context).apply {
+                            id = R.id.rvLibrary
+                            setPadding(0, 0, 0, (170 * context.resources.displayMetrics.density).toInt())
+                            clipToPadding = false
+                        }
+                        val selBar = android.widget.LinearLayout(context).apply {
+                            id = R.id.selectionBar
+                            orientation = android.widget.LinearLayout.HORIZONTAL
+                            gravity = android.view.Gravity.CENTER_VERTICAL
+                            setPadding((16 * context.resources.displayMetrics.density).toInt(), 0, (16 * context.resources.displayMetrics.density).toInt(), 0)
+                            visibility = View.GONE
+                        }
+                        val btnCancel = TextView(context).apply {
+                            id = R.id.btnCancelSelection
+                            text = getString(R.string.cancel)
+                            textSize = 16f
+                        }
+                        val spaceView = View(context)
+                        val btnDel = TextView(context).apply {
+                            id = R.id.btnDeleteBatch
+                            text = getString(R.string.delete_selected)
+                            setTextColor(android.graphics.Color.RED)
+                            textSize = 16f
+                        }
+                        selBar.addView(btnCancel)
+                        selBar.addView(spaceView, android.widget.LinearLayout.LayoutParams(0, 0, 1f))
+                        selBar.addView(btnDel)
 
-                    frameRoot.addView(bg, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
-                    frameRoot.addView(constraint, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
-                    swipeBack.addView(frameRoot, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+                        val pb = ProgressBar(context).apply {
+                            id = R.id.progressBar
+                            visibility = View.GONE
+                        }
 
-                    ivFragmentBackground = bg
-                    recyclerView = rv
-                    progressBar = pb
-                    selectionBar = selBar
-                    btnDeleteBatch = btnDel
-                    btnCancelSelection = btnCancel
+                        val searchParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(0, androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT).apply {
+                            topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        }
+                        val rvParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(0, 0).apply {
+                            topToBottom = R.id.search_bar_compose
+                            bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        }
+                        val selParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.MATCH_PARENT, (64 * context.resources.displayMetrics.density).toInt()).apply {
+                            bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            bottomMargin = (180 * context.resources.displayMetrics.density).toInt()
+                        }
+                        val pbParams = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams(androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT, androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.WRAP_CONTENT).apply {
+                            topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            bottomToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            startToStart = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                            endToEnd = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+                        }
 
-                    btnCancelSelection.setOnClickListener { adapter.setSelectionMode(enabled = false) }
-                    btnDeleteBatch.setOnClickListener {
-                        val selectedItems = adapter.getSelectedItems()
-                        if (selectedItems.isNotEmpty()) showBatchDeleteConfirmation(selectedItems)
-                    }
+                        constraint.addView(searchCompose, searchParams)
+                        constraint.addView(rv, rvParams)
+                        constraint.addView(selBar, selParams)
+                        constraint.addView(pb, pbParams)
 
-                    // 核心修复：将状态栏 padding 作用在内部 constraint 容器上，而非外层 SwipeBackLayout
-                    // 彻底避免 ViewDragHelper 在横向拖拽 contentView 时改动 contentView.top 导致顶部卡片向上坍塌缩进
-                    ViewCompat.setOnApplyWindowInsetsListener(constraint) { v, insets ->
-                        val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-                        v.setPadding(0, systemBars.top, 0, 0)
-                        insets
-                    }
+                        frameRoot.addView(constraint, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
+                        swipeBack.addView(frameRoot, android.widget.FrameLayout.LayoutParams(android.widget.FrameLayout.LayoutParams.MATCH_PARENT, android.widget.FrameLayout.LayoutParams.MATCH_PARENT))
 
-                    syncBackground()
-                    setupRecyclerView()
-                    loadPrefs()
-                    initApiService()
+                        recyclerView = rv
+                        progressBar = pb
+                        selectionBar = selBar
+                        btnDeleteBatch = btnDel
+                        btnCancelSelection = btnCancel
 
-                    val artistId = arguments?.getString("artist_id")
-                    val artistName = arguments?.getString("artist_name")
-                    val targetItemId = arguments?.getString("target_item_id")
+                        btnCancelSelection.setOnClickListener { adapter.setSelectionMode(enabled = false) }
+                        btnDeleteBatch.setOnClickListener {
+                            val selectedItems = adapter.getSelectedItems()
+                            if (selectedItems.isNotEmpty()) showBatchDeleteConfirmation(selectedItems)
+                        }
 
-                    (activity as? HomeActivity)?.findViewById<View>(R.id.bottom_container)?.visibility = View.VISIBLE
+                        ViewCompat.setOnApplyWindowInsetsListener(constraint) { v, insets ->
+                            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                            v.setPadding(0, systemBars.top, 0, 0)
+                            insets
+                        }
 
-                    if (targetItemId != null) {
-                        locateAndLoadParent(targetItemId)
-                    } else if (artistId != null) {
+                        syncBackground()
+                        setupRecyclerView()
+                        loadPrefs()
+                        initApiService()
+
+                        val artistId = arguments?.getString("artist_id")
+                        val artistName = arguments?.getString("artist_name")
+                        val targetItemId = arguments?.getString("target_item_id")
+
+                        (activity as? HomeActivity)?.findViewById<View>(R.id.bottom_container)?.visibility = View.VISIBLE
+
                         val fragments = parentFragmentManager.fragments
-                        if (fragments.size >= 2) {
-                            val prevFragment = fragments[fragments.size - 2]
-                            swipeBack.setPreviousView(prevFragment.view)
-                        }
-                        swipeBack.setOnSwipeBackListener {
-                            requireActivity().onBackPressedDispatcher.onBackPressed()
-                        }
-                        loadItems(artistId, artistName ?: "层级")
-                    } else {
-                        loadItems(null, "音乐库")
-                    }
+                        val myIndex = fragments.indexOf(this@LibraryFragment)
+                        val prevFragment = if (myIndex > 0) fragments[myIndex - 1] else if (fragments.size >= 2) fragments[fragments.size - 2] else null
 
-                    swipeBack
-                },
-                modifier = Modifier.fillMaxSize(),
-            )
+                        if (prevFragment != null && (parentFragmentManager.backStackEntryCount > 0 || artistId != null || targetItemId != null)) {
+                            swipeBack.setPreviousView(prevFragment.view)
+                            swipeBack.setOnSwipeBackListener {
+                                requireActivity().onBackPressedDispatcher.onBackPressed()
+                            }
+                        }
+
+                        if (targetItemId != null) {
+                            locateAndLoadParent(targetItemId)
+                        } else if (artistId != null) {
+                            loadItems(artistId, artistName ?: "层级")
+                        } else {
+                            loadItems(null, "音乐库")
+                        }
+
+                        swipeBack
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         return composeView
     }
@@ -319,6 +345,7 @@ class LibraryFragment : Fragment() {
             onItemDelete = { item ->
                 showDeleteConfirmation(item)
             },
+            backdropProvider = { fragmentBackdrop },
         ) { enabled ->
             selectionBar.visibility = if (enabled) View.VISIBLE else View.GONE
         }

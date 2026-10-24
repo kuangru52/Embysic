@@ -29,6 +29,8 @@ class SwipeBackLayout @JvmOverloads constructor(
     private var dragOffset = 0f
     private val ignoreViews = mutableListOf<View>()
 
+    private var wasPreviousViewHidden = false
+
     fun addIgnoreView(view: View) {
         ignoreViews.add(view)
     }
@@ -37,43 +39,56 @@ class SwipeBackLayout @JvmOverloads constructor(
         this.previousView = view
     }
 
+    override fun onViewAdded(child: View) {
+        super.onViewAdded(child)
+        if (contentView == null) {
+            contentView = child
+        }
+    }
+
     init {
         dragHelper = ViewDragHelper.create(
             this,
             1.0f,
             object : ViewDragHelper.Callback() {
                 override fun tryCaptureView(child: View, pointerId: Int): Boolean {
-                    return (child == contentView) && !isTouchOnIgnoreViews()
+                    if (contentView == null && childCount > 0) {
+                        contentView = getChildAt(0)
+                    }
+                    return (child == contentView || contentView == null) && !isTouchOnIgnoreViews()
                 }
 
-            override fun clampViewPositionHorizontal(child: View, left: Int, dx: Int): Int {
-                return left.coerceIn(0, width)
-            }
-
-            override fun getViewHorizontalDragRange(child: View): Int {
-                return width
-            }
-
-            override fun onViewPositionChanged(changedView: View, left: Int, top: Int, dx: Int, dy: Int) {
-                dragOffset = left.toFloat() / width
-                
-                if ((dragOffset > 0f) && (previousView?.visibility != VISIBLE)) {
-                    previousView?.visibility = VISIBLE
+                override fun clampViewPositionHorizontal(child: View, left: Int, dx: Int): Int {
+                    return left.coerceIn(0, width)
                 }
-                
-                invalidate()
-            }
 
-            override fun onViewReleased(releasedChild: View, xvel: Float, yvel: Float) {
-                val threshold = width / 3
-                if ((xvel > 1000f) || ((releasedChild.left > threshold) && (xvel >= 0f))) {
-                    (context as? HomeActivity)?.isSwipingBack = true
-                    dragHelper.settleCapturedViewAt(width, 0)
-                } else {
-                    dragHelper.settleCapturedViewAt(0, 0)
+                override fun getViewHorizontalDragRange(child: View): Int {
+                    return width
                 }
-                invalidate()
-            }
+
+                override fun onViewPositionChanged(changedView: View, left: Int, top: Int, dx: Int, dy: Int) {
+                    dragOffset = left.toFloat() / width.coerceAtLeast(1)
+                    
+                    if (dragOffset > 0f) {
+                        if (previousView != null && previousView?.visibility != VISIBLE) {
+                            wasPreviousViewHidden = true
+                            previousView?.visibility = VISIBLE
+                        }
+                    }
+                    
+                    invalidate()
+                }
+
+                override fun onViewReleased(releasedChild: View, xvel: Float, yvel: Float) {
+                    val threshold = width / 3
+                    if ((xvel > 1000f) || ((releasedChild.left > threshold) && (xvel >= 0f))) {
+                        (context as? HomeActivity)?.isSwipingBack = true
+                        dragHelper.settleCapturedViewAt(width, 0)
+                    } else {
+                        dragHelper.settleCapturedViewAt(0, 0)
+                    }
+                    invalidate()
+                }
             },
         )
         dragHelper.setEdgeTrackingEnabled(ViewDragHelper.EDGE_LEFT)
@@ -137,32 +152,42 @@ class SwipeBackLayout @JvmOverloads constructor(
             invalidate()
         } else {
             if (dragOffset >= 1.0f) {
-                swipeBackListener?.invoke()
+                val listener = swipeBackListener
+                swipeBackListener = null
+                listener?.invoke()
+            } else if (dragOffset <= 0f) {
+                if (wasPreviousViewHidden && previousView != null) {
+                    previousView?.visibility = GONE
+                    wasPreviousViewHidden = false
+                }
+                (context as? HomeActivity)?.isSwipingBack = false
             }
         }
     }
 
     override fun dispatchDraw(canvas: Canvas) {
-        canvas.withSave {
-            previousView?.let { v ->
-                val scale = 0.95f + (0.05f * dragOffset)
-                canvas.withScale(scale, scale, (width / 2).toFloat(), (height / 2).toFloat()) {
-                    canvas.translate(-width * 0.15f * (1f - dragOffset), 0f)
-                    v.draw(canvas)
-                }
+        if (dragOffset > 0f && previousView != null) {
+            canvas.withSave {
+                previousView?.let { v ->
+                    val scale = 0.95f + (0.05f * dragOffset)
+                    canvas.withScale(scale, scale, (width / 2).toFloat(), (height / 2).toFloat()) {
+                        canvas.translate(-width * 0.15f * (1f - dragOffset), 0f)
+                        v.draw(canvas)
+                    }
 
-                val paint = Paint().apply {
-                    shader = LinearGradient(
-                        0f, 0f, shadowWidth, 0f,
-                        intArrayOf(
-                            android.graphics.Color.argb((0.15f * (1f - dragOffset) * 255).toInt(), 0, 0, 0),
-                            android.graphics.Color.TRANSPARENT,
-                        ),
-                        null,
-                        Shader.TileMode.CLAMP,
-                    )
+                    val paint = Paint().apply {
+                        shader = LinearGradient(
+                            0f, 0f, shadowWidth, 0f,
+                            intArrayOf(
+                                android.graphics.Color.argb((0.20f * (1f - dragOffset) * 255).toInt(), 0, 0, 0),
+                                android.graphics.Color.TRANSPARENT,
+                            ),
+                            null,
+                            Shader.TileMode.CLAMP,
+                        )
+                    }
+                    canvas.drawRect(0f, 0f, shadowWidth, height.toFloat(), paint)
                 }
-                canvas.drawRect(0f, 0f, shadowWidth, height.toFloat(), paint)
             }
         }
         super.dispatchDraw(canvas)

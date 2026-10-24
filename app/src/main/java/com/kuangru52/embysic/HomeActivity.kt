@@ -66,6 +66,8 @@ class HomeActivity : AppCompatActivity() {
     private var isPlayerShown = false
 
     var tuningTarget by mutableStateOf("dock")
+    var wallpaperVersion by mutableIntStateOf(0)
+    var wallpaperBackdrop: LayerBackdrop? by mutableStateOf(null)
     var homeBackdrop: LayerBackdrop? by mutableStateOf(null)
     var themeMode by mutableStateOf("system")
     var appLanguage by mutableStateOf("system")
@@ -597,6 +599,7 @@ class HomeActivity : AppCompatActivity() {
                 }
                 if (source is Int) {
                     iv.setImageResource(source)
+                    wallpaperVersion++
                 } else {
                     iv.load(source) {
                         crossfade(enable = false)
@@ -604,6 +607,11 @@ class HomeActivity : AppCompatActivity() {
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                             transformations(BlurTransformation(this@HomeActivity, blurPx.toInt().coerceIn(1, 100), 4))
                         }
+                        listener(
+                            onSuccess = { _, _ ->
+                                wallpaperVersion++
+                            }
+                        )
                     }
                 }
             }
@@ -1041,20 +1049,24 @@ fun HomeScreen(
     onContainerReady: () -> Unit = {},
 ) {
     val isPreview = LocalInspectionMode.current
-    val backdrop = rememberLayerBackdrop()
+    val wallpaperBackdrop = rememberLayerBackdrop()
+    val homeBackdrop = rememberLayerBackdrop()
     val homeContext = LocalContext.current
     val homeActivity = remember(homeContext) { homeContext.findHomeActivity() }
     val currentIsDark = if (isTabletLandscape) true else isDark
+    val currentWallpaperVersion = homeActivity?.wallpaperVersion ?: 0
+
     SideEffect {
-        homeActivity?.homeBackdrop = backdrop
+        homeActivity?.wallpaperBackdrop = wallpaperBackdrop
+        homeActivity?.homeBackdrop = homeBackdrop
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Layer 1 (底层): 壁纸 + 歌曲列表容器 -> 挂载 Modifier.layerBackdrop(backdrop) 实时抓取像素画面！
+        // Layer 1 (底层): 壁纸 + 歌曲列表容器 -> 挂载 Modifier.layerBackdrop(homeBackdrop) 实时抓取像素画面供底栏采样！
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(if (!isPreview) Modifier.layerBackdrop(backdrop) else Modifier),
+                .then(if (!isPreview) Modifier.layerBackdrop(homeBackdrop) else Modifier),
         ) {
             if (isPreview) {
                 Box(
@@ -1063,19 +1075,25 @@ fun HomeScreen(
                         .background(ComposeColor(0xFF1E1E2C)),
                 )
             } else {
-                AndroidView(
-                    factory = { context ->
-                        ImageView(context).apply {
-                            id = R.id.ivBlurBackground
-                            scaleType = ImageView.ScaleType.CENTER_CROP
-                        }
-                    },
-                    update = { iv ->
-                        (iv.context as? HomeActivity)?.updateWallpaper()
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                // 1.1 壁纸底层 -> 挂载 layerBackdrop(wallpaperBackdrop) 专门捕获壁纸图像供卡片采样！
+                key(currentWallpaperVersion) {
+                    AndroidView(
+                        factory = { context ->
+                            ImageView(context).apply {
+                                id = R.id.ivBlurBackground
+                                scaleType = ImageView.ScaleType.CENTER_CROP
+                            }
+                        },
+                        update = { iv ->
+                            (iv.context as? HomeActivity)?.updateWallpaper()
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(if (!isPreview) Modifier.layerBackdrop(wallpaperBackdrop) else Modifier),
+                    )
+                }
 
+                // 1.2 Fragment 容器（包含 LibraryFragment, RecentFragment, SwipeBackLayout 等）
                 AndroidView(
                     factory = { context ->
                         FrameLayout(context).apply {
@@ -1113,7 +1131,7 @@ fun HomeScreen(
                     chromaMultiplier = glassChromaMultiplier,
                     contrast = glassContrast,
                     whitePoint = glassWhitePoint,
-                    backdrop = backdrop,
+                    backdrop = homeBackdrop,
                 )
             }
         }

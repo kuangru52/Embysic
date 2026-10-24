@@ -12,10 +12,12 @@ import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.Toast
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.viewinterop.AndroidView
+import com.kyant.backdrop.backdrops.layerBackdrop
 import androidx.core.graphics.drawable.toDrawable
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -65,19 +67,92 @@ class RecentFragment : Fragment() {
             return "MediaBrowser Client=\"Embysic\", Device=\"${MediaItemUtils.getDeviceName(ctx)}\", DeviceId=\"${MediaItemUtils.getDeviceId(ctx)}\", Version=\"${BuildConfig.VERSION_NAME}\", Token=\"$accessToken\""
         }
 
+    private var fragmentBackdrop: com.kyant.backdrop.backdrops.LayerBackdrop? = null
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         val composeView = ComposeView(requireContext())
         composeView.setContent {
-            RecentFragmentContent { _, rv, bg, pb ->
-                ivFragmentBackground = bg
-                recyclerView = rv
-                progressBar = pb
+            val recentBackdrop = com.kyant.backdrop.backdrops.rememberLayerBackdrop()
+            fragmentBackdrop = recentBackdrop
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val homeActivity = androidx.compose.runtime.remember(context) { context.findHomeActivity() }
 
-                syncBackground()
-                setupRecyclerView()
-                loadPrefs()
-                initApiService()
-                loadRecentItems()
+            androidx.compose.runtime.SideEffect {
+                homeActivity?.wallpaperBackdrop = recentBackdrop
+                homeActivity?.homeBackdrop = recentBackdrop
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                // 1. 全屏壁纸底层：单独挂载 layerBackdrop(recentBackdrop)！
+                AndroidView(
+                    factory = { ctx ->
+                        ImageView(ctx).apply {
+                            id = R.id.ivFragmentBackground
+                            scaleType = ImageView.ScaleType.CENTER_CROP
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                            )
+                            ivFragmentBackground = this
+                            syncBackground()
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .layerBackdrop(recentBackdrop),
+                )
+
+                // 2. 前景 Interaction 层：RecyclerView 列表与 ProgressBar
+                AndroidView(
+                    factory = { ctx ->
+                        val root = FrameLayout(ctx).apply { id = R.id.fragment_recent_root }
+                        val contentContainer = FrameLayout(ctx).apply {
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                            )
+                        }
+                        val rv = RecyclerView(ctx).apply {
+                            id = R.id.rvRecent
+                            setPadding(0, 0, 0, (170 * ctx.resources.displayMetrics.density).toInt())
+                            clipToPadding = false
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                                FrameLayout.LayoutParams.MATCH_PARENT,
+                            )
+                        }
+                        val pb = ProgressBar(ctx).apply {
+                            id = R.id.progressBar
+                            visibility = View.GONE
+                            layoutParams = FrameLayout.LayoutParams(
+                                FrameLayout.LayoutParams.WRAP_CONTENT,
+                                FrameLayout.LayoutParams.WRAP_CONTENT,
+                                android.view.Gravity.CENTER,
+                            )
+                        }
+
+                        contentContainer.addView(rv)
+                        contentContainer.addView(pb)
+                        root.addView(contentContainer)
+
+                        ViewCompat.setOnApplyWindowInsetsListener(contentContainer) { v, insets ->
+                            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                            v.setPadding(0, systemBars.top, 0, 0)
+                            insets
+                        }
+
+                        recyclerView = rv
+                        progressBar = pb
+
+                        setupRecyclerView()
+                        loadPrefs()
+                        initApiService()
+                        loadRecentItems()
+
+                        root
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
         return composeView
@@ -162,6 +237,7 @@ class RecentFragment : Fragment() {
             onItemClick = { item -> handleItemClick(item) },
             onItemDoubleClick = { item -> handleItemDoubleClick(item) },
             onItemDelete = { item -> confirmDelete(item) },
+            backdropProvider = { fragmentBackdrop },
         )
         recyclerView.layoutManager = LinearLayoutManager(context)
         recyclerView.adapter = adapter
@@ -279,56 +355,4 @@ class RecentFragment : Fragment() {
         (activity as? HomeActivity)?.mediaController?.removeListener(playerListener)
         super.onPause()
     }
-}
-
-@Composable
-fun RecentFragmentContent(
-    onViewCreated: (View, RecyclerView, ImageView, ProgressBar) -> Unit,
-) {
-    AndroidView(
-        factory = { context ->
-            val root = FrameLayout(context).apply {
-                id = R.id.fragment_recent_root
-            }
-            val bg = ImageView(context).apply {
-                id = R.id.ivFragmentBackground
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-            }
-            val contentContainer = FrameLayout(context).apply {
-                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-            }
-            val rv = RecyclerView(context).apply {
-                id = R.id.rvRecent
-                setPadding(0, 0, 0, (170 * context.resources.displayMetrics.density).toInt())
-                clipToPadding = false
-                layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
-            }
-            val pb = ProgressBar(context).apply {
-                id = R.id.progressBar
-                visibility = View.GONE
-                layoutParams = FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    FrameLayout.LayoutParams.WRAP_CONTENT,
-                    android.view.Gravity.CENTER,
-                )
-            }
-
-            contentContainer.addView(rv)
-            contentContainer.addView(pb)
-
-            root.addView(bg)
-            root.addView(contentContainer)
-
-            ViewCompat.setOnApplyWindowInsetsListener(contentContainer) { v, insets ->
-                val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-                v.setPadding(0, systemBars.top, 0, 0)
-                insets
-            }
-
-            onViewCreated(root, rv, bg, pb)
-            root
-        },
-        modifier = Modifier.fillMaxSize(),
-    )
 }
